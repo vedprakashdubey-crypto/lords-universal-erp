@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-# EXCEL FILE DEFINITION (Exact name as on GitHub)
+# EXCEL FILE DEFINITION
 EXCEL_FILE = "assets.xlsx"
 
 COLUMNS_LIST = [
@@ -33,12 +33,66 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# Page configuration for wide desktop layout
+# Page configuration
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# --- USER AUTHENTICATION SYSTEM ---
+USERS = {
+    "giridhar.balakrishnan@universal.edu.in": "Giridhar@123",
+    "ahtesham.qureshi@universal.edu.in": "Ahtesham@123",
+    "admin": "Admin@123",  # Admin Login
+}
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown(
+        """
+        <style>
+            [data-testid="stAppViewContainer"] { background-color: #0F172A !important; }
+            .login-box {
+                max-width: 400px;
+                margin: 80px auto;
+                padding: 30px;
+                background-color: #1E293B;
+                border-radius: 12px;
+                border: 1px solid #334155;
+                color: #FFFFFF;
+            }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<h2 style='text-align:center; color:#FFFFFF;'>LORDS UNIVERSAL IT ERP</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center; color:#38BDF8;'>Please Login to Access ERP System</p>",
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login_form"):
+        username_input = st.text_input("User Email ID / Username")
+        password_input = st.text_input("Password", type="password")
+        submit = st.form_submit_button("🔑 LOGIN")
+
+        if submit:
+            user_clean = username_input.strip().lower()
+            if user_clean in USERS and USERS[user_clean] == password_input:
+                st.session_state.authenticated = True
+                st.session_state.logged_user = user_clean
+                st.success("Login Successful!")
+                st.rerun()
+            else:
+                st.error("Invalid Username or Password!")
+    st.stop()
 
 
 def load_database_file():
@@ -50,7 +104,6 @@ def load_database_file():
                 ["NA", "na", "NaN", "null", "NONE", "None"], "-"
             )
 
-            # Ensure all required columns exist
             for col in COLUMNS_LIST:
                 if col not in data.columns:
                     data[col] = "-"
@@ -64,7 +117,7 @@ def load_database_file():
             return pd.DataFrame(columns=COLUMNS_LIST)
     else:
         st.error(
-            f"⚠️ Database file '{EXCEL_FILE}' not found! Please upload your 252 items Excel file to GitHub as 'assets.xlsx'."
+            f"⚠️ Database file '{EXCEL_FILE}' not found! Please upload your Excel file to GitHub as 'assets.xlsx'."
         )
         return pd.DataFrame(columns=COLUMNS_LIST)
 
@@ -80,7 +133,6 @@ def commit_database_file(dataframe):
 df = load_database_file()
 
 
-# SMART CODE GENERATOR WITH SPECIAL "ALL-IN-ONE" RULE
 def generate_product_prefix(category_str):
     clean = str(category_str).strip().upper()
     if "ALL-IN-ONE" in clean or "ALL IN ONE" in clean or clean == "AIO":
@@ -107,11 +159,10 @@ def generate_product_prefix(category_str):
     return clean_alpha[:3]
 
 
-# --- INITIALIZE CORE SESSION NAVIGATION ENGINE ---
 if "current_dashboard_view" not in st.session_state:
     st.session_state.current_dashboard_view = "Main_Grid"
 
-# --- PREMIUM MODERN CSS SYSTEM ENGINE ---
+# CSS Styling
 st.markdown(
     """
     <style>
@@ -133,7 +184,6 @@ st.markdown(
             border-bottom: 1px solid #1E293B !important;
         }
         
-        /* SIDEBAR SYSTEM PANEL */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
@@ -179,7 +229,6 @@ st.markdown(
             letter-spacing: 0.8px;
         }
 
-        /* METRIC PANEL STYLING */
         .metric-card-wrapper {
             background-color: #1E293B !important;
             border: 1px solid #334155 !important;
@@ -191,7 +240,6 @@ st.markdown(
         .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
         .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; margin-top: 4px; }
 
-        /* SPLIT SCREEN BUTTON MODIFIERS */
         .stButton > button {
             width: 100% !important;
             border-top-left-radius: 0px !important;
@@ -214,7 +262,6 @@ st.markdown(
             border-color: #2563EB !important;
         }
 
-        /* DATA GRID MANAGEMENT */
         .erp-data-table {
             width: 100%;
             border-collapse: collapse;
@@ -239,7 +286,6 @@ st.markdown(
         .erp-data-table tr:nth-child(even) td { background-color: #111827; }
         .erp-data-table tr:hover td { background-color: #2D3748 !important; }
         
-        /* STATUS PILLS */
         .status-pill {
             padding: 4px 10px;
             border-radius: 6px;
@@ -258,9 +304,7 @@ st.markdown(
             background-color: #0F172A !important;
             border: 1px solid #475569 !important;
         }
-        label, p, span {
-            color: #F8FAFC !important;
-        }
+        label, p, span { color: #F8FAFC !important; }
     </style>
 """,
     unsafe_allow_html=True,
@@ -271,6 +315,12 @@ with st.sidebar:
         "<div style='padding: 10px 0; border-bottom: 1px solid #334155;'><h2 style='color:#FFFFFF; font-weight:800; font-size:18px; margin:0;'>LORDS UNIVERSAL</h2><p style='color:#38BDF8; font-size:11px; font-weight:600; margin:0;'>IT Asset Control ERP</p></div><br>",
         unsafe_allow_html=True,
     )
+
+    st.write(f"👤 Logged in as: `{st.session_state.logged_user}`")
+    if st.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
+
     menu_selection = st.sidebar.radio(
         "NAVIGATION REGISTERS:",
         [
@@ -375,7 +425,6 @@ if menu_selection == "📊 Dashboard":
                 st.session_state.current_dashboard_view = "Scrap_View"
                 st.rerun()
 
-        # CATEGORY WISE SUMMARY GRID PANEL
         st.markdown(
             "<div class='workspace-clean-card'>", unsafe_allow_html=True
         )
