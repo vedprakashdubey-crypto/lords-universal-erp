@@ -34,7 +34,7 @@ def force_init_database():
     pd.DataFrame(REAL_COLLEGE_DATA, columns=COLUMNS_LIST).to_excel(EXCEL_FILE, index=False)
 
 if not os.path.exists(EXCEL_FILE) or os.path.getsize(EXCEL_FILE) < 100:
-    force_init_database()
+   # force_init_database()
 
 def load_database_file():
     try:
