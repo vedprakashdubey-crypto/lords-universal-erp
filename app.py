@@ -1,12 +1,13 @@
+import os
 from datetime import datetime
 from io import BytesIO
-import os
 import pandas as pd
 import streamlit as st
 
 # EXCEL FILE DEFINITIONS
 EXCEL_FILE = "assets.xlsx"
 LOG_FILE = "activity_logs.xlsx"
+USERS_FILE = "user_credentials.xlsx"
 
 COLUMNS_LIST = [
     "Asset Code",
@@ -43,8 +44,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- USER AUTHENTICATION & ROLE MANAGEMENT ---
-USERS = {
+# --- USER CREDENTIALS MANAGEMENT ---
+DEFAULT_USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
         "role": "Admin",
@@ -67,17 +68,74 @@ USERS = {
     },
 }
 
+
+def load_user_credentials():
+    """Loads user credentials from file or initializes defaults."""
+    if os.path.exists(USERS_FILE):
+        try:
+            udf = pd.read_excel(USERS_FILE)
+            users_dict = {}
+            for _, r in udf.iterrows():
+                users_dict[str(r["Email"]).strip().lower()] = {
+                    "pass": str(r["Password"]).strip(),
+                    "role": str(r["Role"]).strip(),
+                    "name": str(r["Name"]).strip(),
+                }
+            return users_dict
+        except Exception:
+            return DEFAULT_USERS
+    else:
+        # Create default file
+        rows = []
+        for email, info in DEFAULT_USERS.items():
+            rows.append(
+                {
+                    "Email": email,
+                    "Password": info["pass"],
+                    "Role": info["role"],
+                    "Name": info["name"],
+                }
+            )
+        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
+        return DEFAULT_USERS
+
+
+def save_user_credentials(users_dict):
+    """Saves updated user credentials to Excel file."""
+    rows = []
+    for email, info in users_dict.items():
+        rows.append(
+            {
+                "Email": email,
+                "Password": info["pass"],
+                "Role": info["role"],
+                "Name": info["name"],
+            }
+        )
+    try:
+        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
+    except Exception as e:
+        st.error(f"Failed to update passwords in storage: {e}")
+
+
+USERS = load_user_credentials()
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.logged_user = ""
     st.session_state.user_role = ""
 
-# --- LOGIN FORM ---
+# --- LOGIN FORM & HIDE MANAGE APP ON LOGIN SCREEN ---
 if not st.session_state.authenticated:
     st.markdown(
         """
         <style>
             [data-testid="stAppViewContainer"] { background-color: #0F172A !important; }
+            /* HIDE STREAMLIT FOOTER & MANAGE APP BAR */
+            footer, [data-testid="stStatusWidget"], .stAppToolbar, #MainMenu, [data-testid="manage-app-button"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
             .login-card {
                 max-width: 420px;
                 margin: 60px auto;
@@ -219,11 +277,18 @@ def generate_product_prefix(category_str):
 if "current_dashboard_view" not in st.session_state:
     st.session_state.current_dashboard_view = "Main_Grid"
 
-# --- GLOBAL STYLING ---
+# --- GLOBAL STYLING + HIDE MANAGE APP BAR ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
+        
+        /* HIDE STREAMLIT FOOTER & BOTTOM-RIGHT MANAGE APP FOR ALL USERS */
+        footer, [data-testid="stStatusWidget"], .stAppToolbar, #MainMenu, [data-testid="manage-app-button"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+
         html, body, [data-testid="stAppViewContainer"], .main {
             background-color: #0F172A !important;
             color: #E2E8F0 !important;
@@ -285,10 +350,10 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-    # Menu options depending on Role
     menu_options = ["📊 Dashboard", "➕ Add New Asset", "✏️ Edit / Update Asset", "📑 Issue / Allocate Item", "🛠️ Repair & Maintenance", "⏱️ Warranty Records"]
     if st.session_state.user_role == "Admin":
         menu_options.append("📜 Activity Logs (Audit)")
+        menu_options.append("🔑 Reset User Passwords")
 
     menu_selection = st.sidebar.radio(
         "NAVIGATION REGISTERS:", menu_options, label_visibility="collapsed"
@@ -561,7 +626,6 @@ elif menu_selection == "➕ Add New Asset":
                 df = pd.concat([df, pd.DataFrame([new_row], columns=COLUMNS_LIST)], ignore_index=True)
                 commit_database_file(df)
 
-                # AUDIT LOGGING
                 log_activity("ADD_ASSET", generated_asset_code, f"Added {in_name.strip()} ({in_cat.strip()}) under Location: {in_loc.strip()}")
 
                 st.success(f"Successfully Added! Generated Code: **{generated_asset_code}**")
@@ -630,7 +694,6 @@ elif menu_selection == "✏️ Edit / Update Asset":
                     ]
                     commit_database_file(df)
 
-                    # AUDIT LOGGING
                     log_activity("EDIT_ASSET", selected_edit_code, f"Updated Name: {edit_name.strip()}, Location: {edit_loc.strip()}, Status: {edit_status}")
 
                     st.success(f"Asset Record **{selected_edit_code}** updated successfully!")
@@ -659,7 +722,6 @@ elif menu_selection == "📑 Issue / Allocate Item":
                 ]
                 commit_database_file(df)
 
-                # AUDIT LOGGING
                 log_activity("ISSUE_ASSET", target_asset, f"Assigned To: {assign_user.strip()}, Location: {target_loc.strip()}")
 
                 st.success("Allocation updated.")
@@ -685,7 +747,6 @@ elif menu_selection == "🛠️ Repair & Maintenance":
                 df.loc[df["Asset Code"] == maint_asset, ["Assigned To", "Current Location"]] = ["-", "MAIN STORE"]
             commit_database_file(df)
 
-            # AUDIT LOGGING
             log_activity("MAINTENANCE_CHANGE", maint_asset, f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}")
 
             st.success("Maintenance log updated.")
@@ -710,11 +771,34 @@ elif menu_selection == "📜 Activity Logs (Audit)":
         if not logs_df.empty:
             st.dataframe(logs_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
             
-            # Export Log Button
             log_stream = BytesIO()
             with pd.ExcelWriter(log_stream, engine="openpyxl") as lw:
                 logs_df.to_excel(lw, index=False)
             st.download_button("📥 Export Audit Logs Excel", data=log_stream.getvalue(), file_name="ERP_Activity_Logs.xlsx", use_container_width=True)
         else:
             st.info("No user activity logged yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== MODULE 8: RESET PASSWORDS (ADMIN ONLY) ====================
+elif menu_selection == "🔑 Reset User Passwords":
+    if st.session_state.user_role == "Admin":
+        st.markdown("<div class='workspace-clean-card'><div class='card-heading'>User Password Management</div>", unsafe_allow_html=True)
+        
+        user_list = list(USERS.keys())
+        
+        with st.form("reset_pwd_form"):
+            selected_user = st.selectbox("Select User Account to Reset:", user_list)
+            new_pwd = st.text_input("New Password", type="password")
+            confirm_pwd = st.text_input("Confirm New Password", type="password")
+            
+            if st.form_submit_button("🔄 UPDATE PASSWORD NOW"):
+                if new_pwd and new_pwd == confirm_pwd:
+                    USERS[selected_user]["pass"] = new_pwd
+                    save_user_credentials(USERS)
+                    log_activity("PASSWORD_RESET", "-", f"Admin reset password for user: {selected_user}")
+                    st.success(f"Password for **{selected_user}** has been successfully updated!")
+                elif new_pwd != confirm_pwd:
+                    st.error("Passwords do not match!")
+                else:
+                    st.error("Please enter a valid password.")
         st.markdown("</div>", unsafe_allow_html=True)
