@@ -4,8 +4,9 @@ import os
 import pandas as pd
 import streamlit as st
 
-# EXCEL FILE DEFINITION
+# EXCEL FILE DEFINITIONS
 EXCEL_FILE = "assets.xlsx"
+LOG_FILE = "activity_logs.xlsx"
 
 COLUMNS_LIST = [
     "Asset Code",
@@ -33,6 +34,8 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
+LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
+
 # Page configuration
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
@@ -40,29 +43,48 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- USER AUTHENTICATION SYSTEM ---
+# --- USER AUTHENTICATION & ROLE MANAGEMENT ---
 USERS = {
-    "giridhar.balakrishnan@universal.edu.in": "Giridhar@123",
-    "ahtesham.qureshi@universal.edu.in": "Ahtesham@123",
-    "admin": "Admin@123",  # Admin Login
+    "vedprakash.dubey@universal.edu.in": {
+        "pass": "Vedprakash@123",
+        "role": "Admin",
+        "name": "Vedprakash Dubey",
+    },
+    "vediset2011@gmail.com": {
+        "pass": "Vedprakash@123",
+        "role": "Admin",
+        "name": "Vedprakash Dubey",
+    },
+    "giridhar.balakrishnan@universal.edu.in": {
+        "pass": "Giridhar@123",
+        "role": "Assistant",
+        "name": "Giridhar Balakrishnan",
+    },
+    "ahtesham.qureshi@universal.edu.in": {
+        "pass": "Ahtesham@123",
+        "role": "Assistant",
+        "name": "Ahtesham Qureshi",
+    },
 }
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+    st.session_state.logged_user = ""
+    st.session_state.user_role = ""
 
+# --- LOGIN FORM ---
 if not st.session_state.authenticated:
     st.markdown(
         """
         <style>
             [data-testid="stAppViewContainer"] { background-color: #0F172A !important; }
-            .login-box {
-                max-width: 400px;
-                margin: 80px auto;
+            .login-card {
+                max-width: 420px;
+                margin: 60px auto;
                 padding: 30px;
                 background-color: #1E293B;
                 border-radius: 12px;
                 border: 1px solid #334155;
-                color: #FFFFFF;
             }
         </style>
     """,
@@ -74,29 +96,64 @@ if not st.session_state.authenticated:
         unsafe_allow_html=True,
     )
     st.markdown(
-        "<p style='text-align:center; color:#38BDF8;'>Please Login to Access ERP System</p>",
+        "<p style='text-align:center; color:#38BDF8;'>Enter Corporate Credentials to Access</p>",
         unsafe_allow_html=True,
     )
 
     with st.form("login_form"):
-        username_input = st.text_input("User Email ID / Username")
+        username_input = st.text_input("Corporate Email ID")
         password_input = st.text_input("Password", type="password")
-        submit = st.form_submit_button("🔑 LOGIN")
+        submit = st.form_submit_button("🔑 SECURE LOGIN")
 
         if submit:
-            user_clean = username_input.strip().lower()
-            if user_clean in USERS and USERS[user_clean] == password_input:
+            u_clean = username_input.strip().lower()
+            if u_clean in USERS and USERS[u_clean]["pass"] == password_input:
                 st.session_state.authenticated = True
-                st.session_state.logged_user = user_clean
+                st.session_state.logged_user = u_clean
+                st.session_state.user_role = USERS[u_clean]["role"]
+                st.session_state.user_name = USERS[u_clean]["name"]
                 st.success("Login Successful!")
                 st.rerun()
             else:
-                st.error("Invalid Username or Password!")
+                st.error("Invalid Email ID or Password!")
     st.stop()
 
 
+# --- LOGGING HELPER FUNCTION ---
+def log_activity(action, asset_code, details):
+    """Tracks every add, edit, or status modification made by users."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_log = [now, st.session_state.logged_user, action, asset_code, details]
+
+    if os.path.exists(LOG_FILE):
+        try:
+            log_df = pd.read_excel(LOG_FILE)
+        except Exception:
+            log_df = pd.DataFrame(columns=LOG_COLUMNS)
+    else:
+        log_df = pd.DataFrame(columns=LOG_COLUMNS)
+
+    log_df = pd.concat(
+        [log_df, pd.DataFrame([new_log], columns=LOG_COLUMNS)], ignore_index=True
+    )
+    try:
+        log_df.to_excel(LOG_FILE, index=False)
+    except Exception as e:
+        st.error(f"Failed to record activity log: {e}")
+
+
+def load_logs():
+    """Reads activity logs for admin oversight."""
+    if os.path.exists(LOG_FILE):
+        try:
+            return pd.read_excel(LOG_FILE)
+        except Exception:
+            return pd.DataFrame(columns=LOG_COLUMNS)
+    return pd.DataFrame(columns=LOG_COLUMNS)
+
+
 def load_database_file():
-    """Reads dataset strictly from the uploaded Excel file without resetting data."""
+    """Reads dataset strictly from the uploaded Excel file."""
     if os.path.exists(EXCEL_FILE):
         try:
             data = pd.read_excel(EXCEL_FILE)
@@ -117,7 +174,7 @@ def load_database_file():
             return pd.DataFrame(columns=COLUMNS_LIST)
     else:
         st.error(
-            f"⚠️ Database file '{EXCEL_FILE}' not found! Please upload your Excel file to GitHub as 'assets.xlsx'."
+            f"⚠️ Database file '{EXCEL_FILE}' not found! Please upload 'assets.xlsx' to GitHub."
         )
         return pd.DataFrame(columns=COLUMNS_LIST)
 
@@ -162,177 +219,81 @@ def generate_product_prefix(category_str):
 if "current_dashboard_view" not in st.session_state:
     st.session_state.current_dashboard_view = "Main_Grid"
 
-# CSS Styling
+# --- GLOBAL STYLING ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
-        
         html, body, [data-testid="stAppViewContainer"], .main {
             background-color: #0F172A !important;
             color: #E2E8F0 !important;
             font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
-        
-        .block-container {
-            max-width: 99% !important;
-            padding: 1.5rem 2rem !important;
-        }
-        
-        [data-testid="stHeader"] {
-            background-color: #0F172A !important;
-            border-bottom: 1px solid #1E293B !important;
-        }
-        
-        [data-testid="stSidebar"] {
-            background-color: #1E293B !important;
-            border-right: 1px solid #334155 !important;
-        }
+        .block-container { max-width: 99% !important; padding: 1.5rem 2rem !important; }
+        [data-testid="stHeader"] { background-color: #0F172A !important; border-bottom: 1px solid #1E293B !important; }
+        [data-testid="stSidebar"] { background-color: #1E293B !important; border-right: 1px solid #334155 !important; }
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"], 
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
-            color: #F8FAFC !important;
-            font-size: 14px !important;
-            font-weight: 600 !important;
+            color: #F8FAFC !important; font-size: 14px !important; font-weight: 600 !important;
         }
-        
         div[data-testid="stRadio"] label {
-            padding: 12px 16px !important;
-            border-radius: 8px !important;
-            margin-bottom: 5px !important;
-            color: #94A3B8 !important;
-            font-weight: 500 !important;
-            transition: all 0.2s ease;
+            padding: 12px 16px !important; border-radius: 8px !important; margin-bottom: 5px !important;
+            color: #94A3B8 !important; font-weight: 500 !important; transition: all 0.2s ease;
         }
         div[data-testid="stRadio"] [data-checked="true"] label {
-            background: #2563EB !important;
-            color: #FFFFFF !important;
-            font-weight: 600 !important;
+            background: #2563EB !important; color: #FFFFFF !important; font-weight: 600 !important;
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
         }
-
-        .workspace-clean-card {
-            background: #1E293B;
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-        }
-        
-        .card-heading {
-            font-size: 14px;
-            font-weight: 800;
-            color: #38BDF8;
-            margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #334155;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-
-        .metric-card-wrapper {
-            background-color: #1E293B !important;
-            border: 1px solid #334155 !important;
-            border-top-left-radius: 12px !important;
-            border-top-right-radius: 12px !important;
-            padding: 20px 10px 10px 10px !important;
-            text-align: center;
-        }
+        .workspace-clean-card { background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+        .card-heading { font-size: 14px; font-weight: 800; color: #38BDF8; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #334155; text-transform: uppercase; letter-spacing: 0.8px; }
+        .metric-card-wrapper { background-color: #1E293B !important; border: 1px solid #334155 !important; border-top-left-radius: 12px !important; border-top-right-radius: 12px !important; padding: 20px 10px 10px 10px !important; text-align: center; }
         .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
         .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; margin-top: 4px; }
-
-        .stButton > button {
-            width: 100% !important;
-            border-top-left-radius: 0px !important;
-            border-top-right-radius: 0px !important;
-            border-bottom-left-radius: 12px !important;
-            border-bottom-right-radius: 12px !important;
-            background-color: #0F172A !important;
-            color: #38BDF8 !important;
-            border: 1px solid #334155 !important;
-            border-top: none !important;
-            font-size: 11px !important;
-            font-weight: 700 !important;
-            text-transform: uppercase !important;
-            padding: 8px 0px !important;
-            transition: all 0.2s ease;
-        }
-        .stButton > button:hover {
-            background-color: #2563EB !important;
-            color: #FFFFFF !important;
-            border-color: #2563EB !important;
-        }
-
-        .erp-data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            background: #1E293B;
-        }
-        .erp-data-table th {
-            background: #0F172A !important;
-            color: #38BDF8 !important;
-            font-weight: 700;
-            padding: 14px 16px;
-            text-align: left;
-            border: 1px solid #334155;
-            white-space: nowrap;
-        }
-        .erp-data-table td {
-            padding: 12px 16px;
-            border: 1px solid #334155;
-            color: #E2E8F0;
-            white-space: nowrap;
-        }
+        .stButton > button { width: 100% !important; border-top-left-radius: 0px !important; border-top-right-radius: 0px !important; border-bottom-left-radius: 12px !important; border-bottom-right-radius: 12px !important; background-color: #0F172A !important; color: #38BDF8 !important; border: 1px solid #334155 !important; border-top: none !important; font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase !important; padding: 8px 0px !important; transition: all 0.2s ease; }
+        .stButton > button:hover { background-color: #2563EB !important; color: #FFFFFF !important; border-color: #2563EB !important; }
+        .erp-data-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #1E293B; }
+        .erp-data-table th { background: #0F172A !important; color: #38BDF8 !important; font-weight: 700; padding: 14px 16px; text-align: left; border: 1px solid #334155; white-space: nowrap; }
+        .erp-data-table td { padding: 12px 16px; border: 1px solid #334155; color: #E2E8F0; white-space: nowrap; }
         .erp-data-table tr:nth-child(even) td { background-color: #111827; }
         .erp-data-table tr:hover td { background-color: #2D3748 !important; }
-        
-        .status-pill {
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            display: inline-block;
-        }
+        .status-pill { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; display: inline-block; }
         .pill-available { background-color: rgba(16, 185, 129, 0.2); color: #34D399; border: 1px solid #10B981; }
         .pill-issued { background-color: rgba(245, 158, 11, 0.2); color: #FBBF24; border: 1px solid #F59E0B; }
         .pill-repair { background-color: rgba(59, 130, 246, 0.2); color: #60A5FA; border: 1px solid #3B82F6; }
         .pill-scrap { background-color: rgba(239, 68, 68, 0.2); color: #F87171; border: 1px solid #EF4444; }
-
-        div[data-testid="stTextInput"] input, .stTextInput input, textarea, select {
-            color: #FFFFFF !important;
-            background-color: #0F172A !important;
-            border: 1px solid #475569 !important;
-        }
+        div[data-testid="stTextInput"] input, .stTextInput input, textarea, select { color: #FFFFFF !important; background-color: #0F172A !important; border: 1px solid #475569 !important; }
         label, p, span { color: #F8FAFC !important; }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
+# --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.markdown(
         "<div style='padding: 10px 0; border-bottom: 1px solid #334155;'><h2 style='color:#FFFFFF; font-weight:800; font-size:18px; margin:0;'>LORDS UNIVERSAL</h2><p style='color:#38BDF8; font-size:11px; font-weight:600; margin:0;'>IT Asset Control ERP</p></div><br>",
         unsafe_allow_html=True,
     )
 
-    st.write(f"👤 Logged in as: `{st.session_state.logged_user}`")
-    if st.button("🚪 Logout"):
+    role_badge = "👑 FULL ADMIN" if st.session_state.user_role == "Admin" else "👤 ASSISTANT"
+    st.markdown(
+        f"<div style='background:#0F172A; padding:10px; border-radius:8px; border:1px solid #334155; margin-bottom:15px;'><span style='font-size:12px; color:#38BDF8; font-weight:700;'>{role_badge}</span><br><span style='font-size:13px; color:#FFFFFF;'>{st.session_state.user_name}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🚪 LOGOUT"):
         st.session_state.authenticated = False
         st.rerun()
 
+    # Menu options depending on Role
+    menu_options = ["📊 Dashboard", "➕ Add New Asset", "✏️ Edit / Update Asset", "📑 Issue / Allocate Item", "🛠️ Repair & Maintenance", "⏱️ Warranty Records"]
+    if st.session_state.user_role == "Admin":
+        menu_options.append("📜 Activity Logs (Audit)")
+
     menu_selection = st.sidebar.radio(
-        "NAVIGATION REGISTERS:",
-        [
-            "📊 Dashboard",
-            "➕ Add New Asset",
-            "✏️ Edit / Update Asset",
-            "📑 Issue / Allocate Item",
-            "🛠️ Repair & Maintenance",
-            "⏱️ Warranty Records",
-        ],
-        label_visibility="collapsed",
+        "NAVIGATION REGISTERS:", menu_options, label_visibility="collapsed"
     )
+
     if menu_selection != "📊 Dashboard":
         st.session_state.current_dashboard_view = "Main_Grid"
 
@@ -372,13 +333,11 @@ def render_comprehensive_ledger(dataframe):
     st.markdown(html, unsafe_allow_html=True)
 
 
-# ==================== MODULE 1: INTERACTIVE DASHBOARD ====================
+# ==================== MODULE 1: DASHBOARD ====================
 if menu_selection == "📊 Dashboard":
     if st.session_state.current_dashboard_view == "Main_Grid":
         t_count = len(df)
-        a_count = len(
-            df[df["Status"].str.lower().isin(["available", "working"])]
-        )
+        a_count = len(df[df["Status"].str.lower().isin(["available", "working"])])
         i_count = len(df[df["Status"].str.lower().isin(["issued", "in use"])])
         r_count = len(df[df["Status"].str.lower().str.contains("repair")])
         s_count = len(df[df["Status"].str.lower().isin(["scrap", "damaged"])])
@@ -425,9 +384,7 @@ if menu_selection == "📊 Dashboard":
                 st.session_state.current_dashboard_view = "Scrap_View"
                 st.rerun()
 
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
         st.markdown(
             "<div class='card-heading'>📂 Category-Wise Inventory Status</div>",
             unsafe_allow_html=True,
@@ -440,9 +397,7 @@ if menu_selection == "📊 Dashboard":
                     Total=("Asset Code", "count"),
                     Available=(
                         "Status",
-                        lambda x: x.str.lower()
-                        .isin(["available", "working"])
-                        .sum(),
+                        lambda x: x.str.lower().isin(["available", "working"]).sum(),
                     ),
                     Issued=(
                         "Status",
@@ -478,163 +433,71 @@ if menu_selection == "📊 Dashboard":
             st.info("No categories to display.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
         st.markdown(
             "<div class='card-heading'>📊 Quick Breakdown Filters</div>",
             unsafe_allow_html=True,
         )
         b1, b2, b3 = st.columns(3)
-        cat_options = (
-            sorted(df["Category"].unique().tolist())
-            if "Category" in df.columns
-            else []
-        )
-        loc_options = (
-            sorted(df["Current Location"].unique().tolist())
-            if "Current Location" in df.columns
-            else []
-        )
-        assign_options = (
-            sorted(df["Assigned To"].unique().tolist())
-            if "Assigned To" in df.columns
-            else []
-        )
+        cat_options = sorted(df["Category"].unique().tolist()) if "Category" in df.columns else []
+        loc_options = sorted(df["Current Location"].unique().tolist()) if "Current Location" in df.columns else []
+        assign_options = sorted(df["Assigned To"].unique().tolist()) if "Assigned To" in df.columns else []
 
-        selected_cat = b1.selectbox(
-            "Filter by Category:", ["All Categories"] + cat_options
-        )
-        selected_loc = b2.selectbox(
-            "Filter by Location:", ["All Locations"] + loc_options
-        )
-        selected_assign = b3.selectbox(
-            "Filter by Assigned To:", ["All Personnel"] + assign_options
-        )
+        selected_cat = b1.selectbox("Filter by Category:", ["All Categories"] + cat_options)
+        selected_loc = b2.selectbox("Filter by Location:", ["All Locations"] + loc_options)
+        selected_assign = b3.selectbox("Filter by Assigned To:", ["All Personnel"] + assign_options)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
         fc1, fc2, fc3 = st.columns([1.5, 2, 1])
         grid_filter = fc1.selectbox(
             "Select Status Filter:",
-            [
-                "All Items Pool",
-                "Available Stock",
-                "Issued / Deployed",
-                "In Repair Pipeline",
-                "Scrap Yard Stock",
-            ],
+            ["All Items Pool", "Available Stock", "Issued / Deployed", "In Repair Pipeline", "Scrap Yard Stock"],
         )
-        live_query = fc2.text_input(
-            "Live Data Search Filter:",
-            placeholder="Type Tag, Brand, Staff Name, Location...",
-        )
+        live_query = fc2.text_input("Live Data Search Filter:", placeholder="Type Tag, Brand, Staff Name, Location...")
 
         df_view = df.copy()
-        if "Available" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["available", "working"])
-            ]
-        elif "Issued" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["issued", "in use"])
-            ]
-        elif "Repair" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().str.contains("repair")
-            ]
-        elif "Scrap" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["scrap", "damaged"])
-            ]
+        if "Available" in grid_filter: df_view = df_view[df_view["Status"].str.lower().isin(["available", "working"])]
+        elif "Issued" in grid_filter: df_view = df_view[df_view["Status"].str.lower().isin(["issued", "in use"])]
+        elif "Repair" in grid_filter: df_view = df_view[df_view["Status"].str.lower().str.contains("repair")]
+        elif "Scrap" in grid_filter: df_view = df_view[df_view["Status"].str.lower().isin(["scrap", "damaged"])]
 
-        if selected_cat != "All Categories" and "Category" in df_view.columns:
-            df_view = df_view[df_view["Category"] == selected_cat]
-        if (
-            selected_loc != "All Locations"
-            and "Current Location" in df_view.columns
-        ):
-            df_view = df_view[df_view["Current Location"] == selected_loc]
-        if (
-            selected_assign != "All Personnel"
-            and "Assigned To" in df_view.columns
-        ):
-            df_view = df_view[df_view["Assigned To"] == selected_assign]
-        if live_query:
-            df_view = df_view[
-                df_view.astype(str)
-                .apply(lambda x: x.str.contains(live_query, case=False))
-                .any(axis=1)
-            ]
+        if selected_cat != "All Categories" and "Category" in df_view.columns: df_view = df_view[df_view["Category"] == selected_cat]
+        if selected_loc != "All Locations" and "Current Location" in df_view.columns: df_view = df_view[df_view["Current Location"] == selected_loc]
+        if selected_assign != "All Personnel" and "Assigned To" in df_view.columns: df_view = df_view[df_view["Assigned To"] == selected_assign]
+        if live_query: df_view = df_view[df_view.astype(str).apply(lambda x: x.str.contains(live_query, case=False)).any(axis=1)]
 
         io_stream = BytesIO()
-        with pd.ExcelWriter(io_stream, engine="openpyxl") as ew:
-            df_view.to_excel(ew, index=False)
-        fc3.markdown(
-            "<div style='margin-top:28px;'></div>", unsafe_allow_html=True
-        )
-        fc3.download_button(
-            "📥 Export Current View",
-            data=io_stream.getvalue(),
-            file_name="LUC_IT_Inventory.xlsx",
-            use_container_width=True,
-        )
+        with pd.ExcelWriter(io_stream, engine="openpyxl") as ew: df_view.to_excel(ew, index=False)
+        fc3.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+        fc3.download_button("📥 Export Current View", data=io_stream.getvalue(), file_name="LUC_IT_Inventory.xlsx", use_container_width=True)
 
-        st.markdown(
-            f"<div class='card-heading' style='margin-top:20px;'>Active Ledger View ({len(df_view)} Items)</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='card-heading' style='margin-top:20px;'>Active Ledger View ({len(df_view)} Items)</div>", unsafe_allow_html=True)
         render_comprehensive_ledger(df_view)
         st.markdown("</div>", unsafe_allow_html=True)
 
     elif st.session_state.current_dashboard_view == "Total_View":
-        if st.button("⬅️ Back Dashboard"):
-            st.session_state.current_dashboard_view = "Main_Grid"
-            st.rerun()
+        if st.button("⬅️ Back Dashboard"): st.session_state.current_dashboard_view = "Main_Grid"; st.rerun()
         render_comprehensive_ledger(df)
     elif st.session_state.current_dashboard_view == "Available_View":
-        if st.button("⬅️ Back Dashboard"):
-            st.session_state.current_dashboard_view = "Main_Grid"
-            st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["available", "working"])]
-        )
+        if st.button("⬅️ Back Dashboard"): st.session_state.current_dashboard_view = "Main_Grid"; st.rerun()
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["available", "working"])])
     elif st.session_state.current_dashboard_view == "Issued_View":
-        if st.button("⬅️ Back Dashboard"):
-            st.session_state.current_dashboard_view = "Main_Grid"
-            st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["issued", "in use"])]
-        )
+        if st.button("⬅️ Back Dashboard"): st.session_state.current_dashboard_view = "Main_Grid"; st.rerun()
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["issued", "in use"])])
     elif st.session_state.current_dashboard_view == "Repair_View":
-        if st.button("⬅️ Back Dashboard"):
-            st.session_state.current_dashboard_view = "Main_Grid"
-            st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().str.contains("repair")]
-        )
+        if st.button("⬅️ Back Dashboard"): st.session_state.current_dashboard_view = "Main_Grid"; st.rerun()
+        render_comprehensive_ledger(df[df["Status"].str.lower().str.contains("repair")])
     elif st.session_state.current_dashboard_view == "Scrap_View":
-        if st.button("⬅️ Back Dashboard"):
-            st.session_state.current_dashboard_view = "Main_Grid"
-            st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["scrap", "damaged"])]
-        )
+        if st.button("⬅️ Back Dashboard"): st.session_state.current_dashboard_view = "Main_Grid"; st.rerun()
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["scrap", "damaged"])])
 
 # ==================== MODULE 2: DATA ENTRY ====================
 elif menu_selection == "➕ Add New Asset":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Add New Item Form (Asset Code Auto-Generates)</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Add New Item Form (Asset Code Auto-Generates)</div>", unsafe_allow_html=True)
     with st.form("master_injection_form", clear_on_submit=True):
         r1, r2, r3, r4 = st.columns(4)
-        in_cat = r1.text_input(
-            "Category / Product Type*",
-            placeholder="e.g. All-in-One, Laptop, Keyboard, Mouse",
-        )
+        in_cat = r1.text_input("Category / Product Type*", placeholder="e.g. All-in-One, Laptop, Keyboard, Mouse")
         in_name = r2.text_input("Asset / Item Name")
         in_brand = r3.text_input("Brand")
         in_model = r4.text_input("Model Number")
@@ -664,9 +527,7 @@ elif menu_selection == "➕ Add New Asset":
         in_dept = r20.text_input("Department", value="IT")
 
         r21, r22 = st.columns([2, 2])
-        in_status = r21.selectbox(
-            "Status", ["Available", "Issued", "In Repair", "Scrap"]
-        )
+        in_status = r21.selectbox("Status", ["Available", "Issued", "In Repair", "Scrap"])
         in_rem = r22.text_input("Remarks", value="-")
 
         if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
@@ -674,61 +535,36 @@ elif menu_selection == "➕ Add New Asset":
                 prefix = generate_product_prefix(in_cat)
                 full_prefix = f"LUC-{prefix}-"
 
-                matching_codes = df[df["Asset Code"].str.startswith(full_prefix)][
-                    "Asset Code"
-                ].tolist()
-
+                matching_codes = df[df["Asset Code"].str.startswith(full_prefix)]["Asset Code"].tolist()
                 max_num = 0
                 for code in matching_codes:
                     try:
                         num_part = int(code.split("-")[-1])
-                        if num_part > max_num:
-                            max_num = num_part
-                    except ValueError:
-                        continue
+                        if num_part > max_num: max_num = num_part
+                    except ValueError: continue
 
                 next_num = max_num + 1
                 generated_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
 
                 if generated_asset_code in df["Asset Code"].values:
-                    generated_asset_code = (
-                        f"{full_prefix}{str(next_num + 1).zfill(3)}"
-                    )
+                    generated_asset_code = f"{full_prefix}{str(next_num + 1).zfill(3)}"
 
                 new_row = [
-                    generated_asset_code,
-                    in_name.strip(),
-                    in_cat.strip(),
-                    in_brand.strip(),
-                    in_model.strip(),
-                    in_serial.strip(),
-                    in_proc.strip(),
-                    in_ram.strip(),
-                    in_storage.strip(),
-                    in_os.strip(),
-                    in_mac.strip(),
-                    in_ip.strip(),
-                    in_pdate.strip(),
-                    in_inv.strip(),
-                    in_vendor.strip(),
-                    in_cost.strip(),
-                    in_wstart.strip(),
-                    in_wend.strip(),
-                    in_loc.strip(),
-                    in_teach.strip(),
-                    in_dept.strip(),
-                    in_status,
-                    in_rem.strip(),
+                    generated_asset_code, in_name.strip(), in_cat.strip(), in_brand.strip(),
+                    in_model.strip(), in_serial.strip(), in_proc.strip(), in_ram.strip(),
+                    in_storage.strip(), in_os.strip(), in_mac.strip(), in_ip.strip(),
+                    in_pdate.strip(), in_inv.strip(), in_vendor.strip(), in_cost.strip(),
+                    in_wstart.strip(), in_wend.strip(), in_loc.strip(), in_teach.strip(),
+                    in_dept.strip(), in_status, in_rem.strip(),
                 ]
 
-                df = pd.concat(
-                    [df, pd.DataFrame([new_row], columns=COLUMNS_LIST)],
-                    ignore_index=True,
-                )
+                df = pd.concat([df, pd.DataFrame([new_row], columns=COLUMNS_LIST)], ignore_index=True)
                 commit_database_file(df)
-                st.success(
-                    f"Successfully Added! Generated Code: **{generated_asset_code}**"
-                )
+
+                # AUDIT LOGGING
+                log_activity("ADD_ASSET", generated_asset_code, f"Added {in_name.strip()} ({in_cat.strip()}) under Location: {in_loc.strip()}")
+
+                st.success(f"Successfully Added! Generated Code: **{generated_asset_code}**")
                 st.rerun()
             else:
                 st.error("Please fill the 'Category / Product Type' field.")
@@ -736,15 +572,10 @@ elif menu_selection == "➕ Add New Asset":
 
 # ==================== MODULE 3: EDIT / UPDATE ASSET ====================
 elif menu_selection == "✏️ Edit / Update Asset":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Modify Existing Asset Details</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Modify Existing Asset Details</div>", unsafe_allow_html=True)
 
     asset_list = sorted(df["Asset Code"].tolist())
-    selected_edit_code = st.selectbox(
-        "Select Asset Code to Edit:", ["-- Select Code --"] + asset_list
-    )
+    selected_edit_code = st.selectbox("Select Asset Code to Edit:", ["-- Select Code --"] + asset_list)
 
     if selected_edit_code != "-- Select Code --":
         row_data = df[df["Asset Code"] == selected_edit_code].iloc[0]
@@ -752,110 +583,57 @@ elif menu_selection == "✏️ Edit / Update Asset":
         with st.form("master_edit_form"):
             st.warning(f"You are modifying item record: {selected_edit_code}")
             er1, er2, er3, er4 = st.columns(4)
-            edit_cat = er1.text_input(
-                "Category / Product Type*", value=row_data["Category"]
-            )
-            edit_name = er2.text_input(
-                "Asset / Item Name", value=row_data["Asset Name"]
-            )
+            edit_cat = er1.text_input("Category / Product Type*", value=row_data["Category"])
+            edit_name = er2.text_input("Asset / Item Name", value=row_data["Asset Name"])
             edit_brand = er3.text_input("Brand", value=row_data["Brand"])
             edit_model = er4.text_input("Model Number", value=row_data["Model"])
 
             er5, er6, er7, er8 = st.columns(4)
-            edit_serial = er5.text_input(
-                "Serial Number (S/N)", value=row_data["Serial Number"]
-            )
+            edit_serial = er5.text_input("Serial Number (S/N)", value=row_data["Serial Number"])
             edit_proc = er6.text_input("Processor", value=row_data["Processor"])
             edit_ram = er7.text_input("RAM", value=row_data["RAM"])
-            edit_storage = er8.text_input(
-                "Storage", value=row_data["Storage"]
-            )
+            edit_storage = er8.text_input("Storage", value=row_data["Storage"])
 
             er9, er10, er11, er12 = st.columns(4)
-            edit_os = er9.text_input(
-                "Operating System", value=row_data["Operating System"]
-            )
-            edit_mac = er10.text_input(
-                "MAC Address", value=row_data["MAC Address"]
-            )
+            edit_os = er9.text_input("Operating System", value=row_data["Operating System"])
+            edit_mac = er10.text_input("MAC Address", value=row_data["MAC Address"])
             edit_ip = er11.text_input("IP Address", value=row_data["IP Address"])
-            edit_pdate = er12.text_input(
-                "Purchase Date", value=row_data["Purchase Date"]
-            )
+            edit_pdate = er12.text_input("Purchase Date", value=row_data["Purchase Date"])
 
             er13, er14, er15, er16 = st.columns(4)
-            edit_inv = er13.text_input(
-                "Invoice Number", value=row_data["Invoice Number"]
-            )
+            edit_inv = er13.text_input("Invoice Number", value=row_data["Invoice Number"])
             edit_vendor = er14.text_input("Vendor", value=row_data["Vendor"])
-            edit_cost = er15.text_input(
-                "Purchase Cost", value=row_data["Purchase Cost"]
-            )
-            edit_wstart = er16.text_input(
-                "Warranty Start", value=row_data["Warranty Start"]
-            )
+            edit_cost = er15.text_input("Purchase Cost", value=row_data["Purchase Cost"])
+            edit_wstart = er16.text_input("Warranty Start", value=row_data["Warranty Start"])
 
             er17, er18, er19, er20 = st.columns(4)
-            edit_wend = er17.text_input(
-                "Warranty End", value=row_data["Warranty End"]
-            )
-            edit_loc = er18.text_input(
-                "Current Location", value=row_data["Current Location"]
-            )
-            edit_teach = er19.text_input(
-                "Assigned To", value=row_data["Assigned To"]
-            )
-            edit_dept = er20.text_input(
-                "Department", value=row_data["Department"]
-            )
+            edit_wend = er17.text_input("Warranty End", value=row_data["Warranty End"])
+            edit_loc = er18.text_input("Current Location", value=row_data["Current Location"])
+            edit_teach = er19.text_input("Assigned To", value=row_data["Assigned To"])
+            edit_dept = er20.text_input("Department", value=row_data["Department"])
 
             er21, er22 = st.columns([2, 2])
             status_index = ["Available", "Issued", "In Repair", "Scrap"]
-            current_status = (
-                row_data["Status"]
-                if row_data["Status"] in status_index
-                else "Available"
-            )
-            edit_status = er21.selectbox(
-                "Status",
-                status_index,
-                index=status_index.index(current_status),
-            )
+            current_status = row_data["Status"] if row_data["Status"] in status_index else "Available"
+            edit_status = er21.selectbox("Status", status_index, index=status_index.index(current_status))
             edit_rem = er22.text_input("Remarks", value=row_data["Remarks"])
 
             if st.form_submit_button("💾 UPDATE CHANGES"):
                 if edit_cat.strip():
-                    df.loc[df["Asset Code"] == selected_edit_code, COLUMNS_LIST] = (
-                        [
-                            selected_edit_code,
-                            edit_name.strip(),
-                            edit_cat.strip(),
-                            edit_brand.strip(),
-                            edit_model.strip(),
-                            edit_serial.strip(),
-                            edit_proc.strip(),
-                            edit_ram.strip(),
-                            edit_storage.strip(),
-                            edit_os.strip(),
-                            edit_mac.strip(),
-                            edit_ip.strip(),
-                            edit_pdate.strip(),
-                            edit_inv.strip(),
-                            edit_vendor.strip(),
-                            edit_cost.strip(),
-                            edit_wstart.strip(),
-                            edit_wend.strip(),
-                            edit_loc.strip(),
-                            edit_teach.strip(),
-                            edit_dept.strip(),
-                            edit_status,
-                            edit_rem.strip(),
-                        ]
-                    )
+                    df.loc[df["Asset Code"] == selected_edit_code, COLUMNS_LIST] = [
+                        selected_edit_code, edit_name.strip(), edit_cat.strip(), edit_brand.strip(),
+                        edit_model.strip(), edit_serial.strip(), edit_proc.strip(), edit_ram.strip(),
+                        edit_storage.strip(), edit_os.strip(), edit_mac.strip(), edit_ip.strip(),
+                        edit_pdate.strip(), edit_inv.strip(), edit_vendor.strip(), edit_cost.strip(),
+                        edit_wstart.strip(), edit_wend.strip(), edit_loc.strip(), edit_teach.strip(),
+                        edit_dept.strip(), edit_status, edit_rem.strip(),
+                    ]
                     commit_database_file(df)
-                    st.success(
-                        f"Asset Record **{selected_edit_code}** updated successfully!"
-                    )
+
+                    # AUDIT LOGGING
+                    log_activity("EDIT_ASSET", selected_edit_code, f"Updated Name: {edit_name.strip()}, Location: {edit_loc.strip()}, Status: {edit_status}")
+
+                    st.success(f"Asset Record **{selected_edit_code}** updated successfully!")
                     st.rerun()
                 else:
                     st.error("Category cannot be empty.")
@@ -863,104 +641,80 @@ elif menu_selection == "✏️ Edit / Update Asset":
 
 # ==================== MODULE 4: ALLOCATION ====================
 elif menu_selection == "📑 Issue / Allocate Item":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Issue Item Form</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Issue Item Form</div>", unsafe_allow_html=True)
     with st.form("issue_form"):
-        available_assets = df[
-            df["Status"].str.lower().isin(["available", "working"])
-        ]["Asset Code"].tolist()
+        available_assets = df[df["Status"].str.lower().isin(["available", "working"])]["Asset Code"].tolist()
         c1, c2, c3 = st.columns(3)
-        target_asset = c1.selectbox(
-            "Select Asset Tag:",
-            available_assets if available_assets else ["No Stock Available"],
-        )
+        target_asset = c1.selectbox("Select Asset Tag:", available_assets if available_assets else ["No Stock Available"])
         assign_user = c2.text_input("Assigned To (Staff Name)*")
         target_loc = c3.text_input("Current Location (Room/Lab)*")
         c4, c5 = st.columns(2)
         target_dept = c4.text_input("Department", value="IT")
-        issue_remarks = c5.text_input(
-            "Remarks / Notes", value="Issued for official college use"
-        )
+        issue_remarks = c5.text_input("Remarks / Notes", value="Issued for official college use")
 
         if st.form_submit_button("⚡ ASSIGN / ISSUE NOW") and available_assets:
             if assign_user.strip() and target_loc.strip():
-                df.loc[
-                    df["Asset Code"] == target_asset,
-                    [
-                        "Assigned To",
-                        "Current Location",
-                        "Department",
-                        "Status",
-                        "Remarks",
-                    ],
-                ] = [
-                    assign_user.strip(),
-                    target_loc.strip(),
-                    target_dept.strip(),
-                    "Issued",
-                    issue_remarks.strip(),
+                df.loc[df["Asset Code"] == target_asset, ["Assigned To", "Current Location", "Department", "Status", "Remarks"]] = [
+                    assign_user.strip(), target_loc.strip(), target_dept.strip(), "Issued", issue_remarks.strip()
                 ]
                 commit_database_file(df)
+
+                # AUDIT LOGGING
+                log_activity("ISSUE_ASSET", target_asset, f"Assigned To: {assign_user.strip()}, Location: {target_loc.strip()}")
+
                 st.success("Allocation updated.")
                 st.rerun()
 
-    st.markdown(
-        "<br><div class='card-heading'>Currently Issued Items Matrix</div>",
-        unsafe_allow_html=True,
-    )
-    render_comprehensive_ledger(
-        df[df["Status"].str.lower().isin(["issued", "in use"])]
-    )
+    st.markdown("<br><div class='card-heading'>Currently Issued Items Matrix</div>", unsafe_allow_html=True)
+    render_comprehensive_ledger(df[df["Status"].str.lower().isin(["issued", "in use"])])
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 5: REPAIR ====================
 elif menu_selection == "🛠️ Repair & Maintenance":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Maintenance Loop Control</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Maintenance Loop Control</div>", unsafe_allow_html=True)
     with st.form("repair_form"):
         all_assets = df["Asset Code"].tolist()
         rc1, rc2, rc3 = st.columns(3)
-        maint_asset = rc1.selectbox(
-            "Select Asset Tag:", all_assets if all_assets else ["-"]
-        )
+        maint_asset = rc1.selectbox("Select Asset Tag:", all_assets if all_assets else ["-"])
         maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
-        maint_remarks = rc3.text_input(
-            "Fault / Repair Logs:", value="Servicing requested"
-        )
+        maint_remarks = rc3.text_input("Fault / Repair Logs:", value="Servicing requested")
 
-        if (
-            st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS")
-            and all_assets
-        ):
-            df.loc[
-                df["Asset Code"] == maint_asset, ["Status", "Remarks"]
-            ] = [maint_status, maint_remarks.strip()]
+        if st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS") and all_assets:
+            df.loc[df["Asset Code"] == maint_asset, ["Status", "Remarks"]] = [maint_status, maint_remarks.strip()]
             if maint_status == "Available":
-                df.loc[
-                    df["Asset Code"] == maint_asset,
-                    ["Assigned To", "Current Location"],
-                ] = ["-", "MAIN STORE"]
+                df.loc[df["Asset Code"] == maint_asset, ["Assigned To", "Current Location"]] = ["-", "MAIN STORE"]
             commit_database_file(df)
+
+            # AUDIT LOGGING
+            log_activity("MAINTENANCE_CHANGE", maint_asset, f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}")
+
             st.success("Maintenance log updated.")
             st.rerun()
 
-    st.markdown(
-        "<br><div class='card-heading'>Active Items Under Repair</div>",
-        unsafe_allow_html=True,
-    )
-    render_comprehensive_ledger(
-        df[df["Status"].str.lower().str.contains("repair")]
-    )
+    st.markdown("<br><div class='card-heading'>Active Items Under Repair</div>", unsafe_allow_html=True)
+    render_comprehensive_ledger(df[df["Status"].str.lower().str.contains("repair")])
     st.markdown("</div>", unsafe_allow_html=True)
 
-else:
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Warranty & AMC Status Ledger</div>",
-        unsafe_allow_html=True,
-    )
+# ==================== MODULE 6: WARRANTY ====================
+elif menu_selection == "⏱️ Warranty Records":
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Warranty & AMC Status Ledger</div>", unsafe_allow_html=True)
     render_comprehensive_ledger(df)
     st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== MODULE 7: AUDIT LOGS (ADMIN ONLY) ====================
+elif menu_selection == "📜 Activity Logs (Audit)":
+    if st.session_state.user_role == "Admin":
+        st.markdown("<div class='workspace-clean-card'><div class='card-heading'>User Activity & Audit Ledger</div>", unsafe_allow_html=True)
+        
+        logs_df = load_logs()
+        if not logs_df.empty:
+            st.dataframe(logs_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+            
+            # Export Log Button
+            log_stream = BytesIO()
+            with pd.ExcelWriter(log_stream, engine="openpyxl") as lw:
+                logs_df.to_excel(lw, index=False)
+            st.download_button("📥 Export Audit Logs Excel", data=log_stream.getvalue(), file_name="ERP_Activity_Logs.xlsx", use_container_width=True)
+        else:
+            st.info("No user activity logged yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
