@@ -44,19 +44,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- PERFECT CSS FIX: DARK HEADER + VISIBLE SIDEBAR BUTTON + HIDDEN MANAGE APP ---
+# --- PERFECT CSS FIX ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* 1. FIX TOP WHITE BAR AREA (MATCH DARK THEME) */
         header, [data-testid="stHeader"] {
             background-color: #0F172A !important;
             border-bottom: 1px solid #1E293B !important;
         }
 
-        /* 2. MAKE SIDEBAR TOGGLE BUTTON ALWAYS VISIBLE IN BRIGHT BLUE */
         [data-testid="collapsedControl"], 
         button[data-testid="stHeaderNavButton"],
         [data-testid="stSidebarCollapseButton"] {
@@ -71,7 +69,6 @@ st.markdown(
             border: 1px solid #38BDF8 !important;
         }
 
-        /* 3. PERMANENTLY HIDE MANAGE APP & FOOTER BADGES */
         footer, 
         [data-testid="stStatusWidget"],
         [data-testid="manage-app-button"],
@@ -84,7 +81,6 @@ st.markdown(
             pointer-events: none !important;
         }
 
-        /* 4. MAIN APP BACKGROUND & TYPOGRAPHY */
         html, body, [data-testid="stAppViewContainer"], .main {
             background-color: #0F172A !important;
             color: #E2E8F0 !important;
@@ -96,7 +92,6 @@ st.markdown(
             padding: 1rem 2rem !important;
         }
         
-        /* SIDEBAR SYSTEM PANEL */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
@@ -142,7 +137,6 @@ st.markdown(
             letter-spacing: 0.8px;
         }
 
-        /* METRIC PANEL STYLING */
         .metric-card-wrapper {
             background-color: #1E293B !important;
             border: 1px solid #334155 !important;
@@ -154,7 +148,6 @@ st.markdown(
         .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
         .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; margin-top: 4px; }
 
-        /* BUTTON MODIFIERS */
         .stButton > button {
             width: 100% !important;
             border-top-left-radius: 0px !important;
@@ -177,7 +170,6 @@ st.markdown(
             border-color: #2563EB !important;
         }
 
-        /* DATA GRID MANAGEMENT */
         .erp-data-table {
             width: 100%;
             border-collapse: collapse;
@@ -202,7 +194,6 @@ st.markdown(
         .erp-data-table tr:nth-child(even) td { background-color: #111827; }
         .erp-data-table tr:hover td { background-color: #2D3748 !important; }
         
-        /* STATUS PILLS */
         .status-pill {
             padding: 4px 10px;
             border-radius: 6px;
@@ -396,6 +387,8 @@ def generate_product_prefix(category_str):
         return "KEY"
     if "MOUSE" in clean:
         return "MSE"
+    if "PROJECTOR" in clean or "PROJECOR" in clean or "PRJ" in clean:
+        return "PRJ"
     clean_alpha = "".join(e for e in clean if e.isalnum())
     if not clean_alpha:
         return "AST"
@@ -750,7 +743,7 @@ elif menu_selection == "➕ Add New Asset":
         r1, r2, r3, r4 = st.columns(4)
         in_cat = r1.text_input(
             "Category / Product Type*",
-            placeholder="e.g. All-in-One, Laptop, Keyboard, Mouse",
+            placeholder="e.g. All-in-One, Laptop, Projector, Keyboard, Mouse",
         )
         in_name = r2.text_input("Asset / Item Name")
         in_brand = r3.text_input("Brand")
@@ -1117,10 +1110,6 @@ elif menu_selection == "📁 Import & Export Data":
         unsafe_allow_html=True,
     )
 
-    st.write(
-        "Aap ek sath multiple assets ki Excel file upload karke system me import kar sakte hain."
-    )
-
     col_imp1, col_imp2 = st.columns([2, 1])
 
     with col_imp1:
@@ -1179,34 +1168,31 @@ elif menu_selection == "📁 Import & Export Data":
 
     with col_imp2:
         st.markdown("### 📄 Download Sample Template")
-        st.write(
-            "Bulk import karne ke liye is template format me data fill karein:"
-        )
 
         sample_df = pd.DataFrame(columns=COLUMNS_LIST)
         sample_df.loc[0] = [
-            "LUC-LPT-001",
-            "HP Laptop",
-            "Laptop",
-            "HP",
-            "ProBook 440 G8",
+            "LUC-PRJ-001",
+            "Projector",
+            "Projector",
+            "Epson",
+            "EB-E01",
             "SN123456",
-            "i5 11th Gen",
-            "8GB",
-            "512GB SSD",
-            "Windows 11",
-            "00:1A:2B:3C:4D:5E",
-            "192.168.1.50",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
             "2024-01-15",
             "INV-9988",
-            "Dell Corp",
-            "55000",
+            "Vendor",
+            "35000",
             "2024-01-15",
-            "2027-01-15",
-            "LAB 101",
-            "Rahul Sharma",
+            "2026-01-15",
+            "MAIN STORE",
+            "-",
             "IT",
-            "Issued",
+            "Available",
             "Sample Row",
         ]
 
@@ -1226,9 +1212,6 @@ elif menu_selection == "📁 Import & Export Data":
     st.markdown(
         "<div class='workspace-clean-card'><div class='card-heading'>📤 FULL BACKUP EXPORT (DATABASE DOWNLOAD)</div>",
         unsafe_allow_html=True,
-    )
-    st.write(
-        "Poore current ERP Database (Saare 260+ Items) ki Excel file ka backup download karne ke liye niche button par click karein:"
     )
 
     full_export_stream = BytesIO()
