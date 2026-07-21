@@ -358,7 +358,13 @@ def load_database_file():
                 if col not in data.columns:
                     data[col] = "-"
             for col in data.columns:
-                data[col] = data[col].astype(str).str.strip()
+                data[col] = (
+                    data[col]
+                    .astype(str)
+                    .str.strip()
+                    .replace("nan", "-")
+                    .replace("None", "-")
+                )
             return data[COLUMNS_LIST]
         except Exception:
             return pd.DataFrame(columns=COLUMNS_LIST)
@@ -1113,58 +1119,64 @@ elif menu_selection == "📁 Import & Export Data":
     col_imp1, col_imp2 = st.columns([2, 1])
 
     with col_imp1:
-        uploaded_file = st.file_uploader(
-            "Select Excel File (.xlsx)", type=["xlsx", "xls"]
-        )
-        import_mode = st.radio(
-            "Import Mode Select Karein:",
-            [
-                "➕ Merge / Append (Existing data ke aage add karein)",
-                "🔄 Overwrite / Replace (Naye data se poora database replace karein)",
-            ],
-        )
+        with st.form("bulk_import_form", clear_on_submit=True):
+            uploaded_file = st.file_uploader(
+                "Select Excel File (.xlsx)", type=["xlsx", "xls"]
+            )
+            import_mode = st.radio(
+                "Import Mode Select Karein:",
+                [
+                    "➕ Merge / Append (Existing data ke aage add karein)",
+                    "🔄 Overwrite / Replace (Naye data se poora database replace karein)",
+                ],
+            )
+            submit_import = st.form_submit_button("🚀 START IMPORT PROCESS")
 
-        if st.button("🚀 START IMPORT PROCESS") and uploaded_file is not None:
-            try:
-                imported_df = pd.read_excel(uploaded_file)
-                imported_df = imported_df.fillna("-").astype(str)
+            if submit_import:
+                if uploaded_file is not None:
+                    try:
+                        imported_df = pd.read_excel(uploaded_file)
+                        imported_df = imported_df.fillna("-").astype(str)
 
-                for col in COLUMNS_LIST:
-                    if col not in imported_df.columns:
-                        imported_df[col] = "-"
+                        # Standardize columns
+                        for col in COLUMNS_LIST:
+                            if col not in imported_df.columns:
+                                imported_df[col] = "-"
 
-                imported_df = imported_df[COLUMNS_LIST]
+                        imported_df = imported_df[COLUMNS_LIST]
 
-                if "Merge" in import_mode:
-                    combined_df = pd.concat(
-                        [df, imported_df], ignore_index=True
-                    )
-                    combined_df = combined_df.drop_duplicates(
-                        subset=["Asset Code"], keep="last"
-                    )
-                    commit_database_file(combined_df)
-                    log_activity(
-                        "BULK_IMPORT",
-                        "-",
-                        f"Imported {len(imported_df)} records (Merge mode)",
-                    )
-                    st.success(
-                        f"✅ Successfully Imported & Merged {len(imported_df)} records!"
-                    )
+                        if "Merge" in import_mode:
+                            combined_df = pd.concat(
+                                [df, imported_df], ignore_index=True
+                            )
+                            combined_df = combined_df.drop_duplicates(
+                                subset=["Asset Code"], keep="last"
+                            )
+                            commit_database_file(combined_df)
+                            log_activity(
+                                "BULK_IMPORT",
+                                "-",
+                                f"Imported {len(imported_df)} records (Merge mode)",
+                            )
+                            st.success(
+                                f"✅ Successfully Imported & Merged {len(imported_df)} records!"
+                            )
+                        else:
+                            commit_database_file(imported_df)
+                            log_activity(
+                                "BULK_IMPORT_REPLACE",
+                                "-",
+                                f"Replaced database with {len(imported_df)} records",
+                            )
+                            st.success(
+                                f"✅ Database replaced with {len(imported_df)} new records!"
+                            )
+
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error processing file: {e}")
                 else:
-                    commit_database_file(imported_df)
-                    log_activity(
-                        "BULK_IMPORT_REPLACE",
-                        "-",
-                        f"Replaced database with {len(imported_df)} records",
-                    )
-                    st.success(
-                        f"✅ Database replaced with {len(imported_df)} new records!"
-                    )
-
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error processing file: {e}")
+                    st.error("Kripya pehle Excel file select kijiye!")
 
     with col_imp2:
         st.markdown("### 📄 Download Sample Template")
