@@ -1124,7 +1124,6 @@ elif menu_selection == "📁 Import & Export Data":
     col_imp1, col_imp2 = st.columns([2, 1])
 
     with col_imp1:
-        uploaded_file = st.file_drop_button
         uploaded_file = st.file_uploader(
             "Select Excel File (.xlsx)", type=["xlsx", "xls"]
         )
@@ -1141,7 +1140,6 @@ elif menu_selection == "📁 Import & Export Data":
                 imported_df = pd.read_excel(uploaded_file)
                 imported_df = imported_df.fillna("-").astype(str)
 
-                # Ensure required columns exist
                 for col in COLUMNS_LIST:
                     if col not in imported_df.columns:
                         imported_df[col] = "-"
@@ -1149,7 +1147,6 @@ elif menu_selection == "📁 Import & Export Data":
                 imported_df = imported_df[COLUMNS_LIST]
 
                 if "Merge" in import_mode:
-                    # Append new items
                     combined_df = pd.concat(
                         [df, imported_df], ignore_index=True
                     )
@@ -1166,7 +1163,6 @@ elif menu_selection == "📁 Import & Export Data":
                         f"✅ Successfully Imported & Merged {len(imported_df)} records!"
                     )
                 else:
-                    # Replace completely
                     commit_database_file(imported_df)
                     log_activity(
                         "BULK_IMPORT_REPLACE",
