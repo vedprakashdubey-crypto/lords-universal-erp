@@ -44,34 +44,47 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- GLOBAL STYLING + ALWAYS VISIBLE SIDEBAR ARROW ---
+# --- PERFECT CSS FIX: DARK HEADER + VISIBLE SIDEBAR BUTTON + HIDDEN MANAGE APP ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* HIDE FOOTER AND MANAGE APP BAR ONLY */
-        #MainMenu, footer, [data-testid="stStatusWidget"],
-        .stAppToolbar, [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
-        div[class*="viewerBadge"], div[class*="manageApp"] {
+        /* 1. FIX TOP WHITE BAR AREA (MATCH DARK THEME) */
+        header, [data-testid="stHeader"] {
+            background-color: #0F172A !important;
+            border-bottom: 1px solid #1E293B !important;
+        }
+
+        /* 2. MAKE SIDEBAR TOGGLE BUTTON ALWAYS VISIBLE IN BRIGHT BLUE */
+        [data-testid="collapsedControl"], 
+        button[data-testid="stHeaderNavButton"],
+        [data-testid="stSidebarCollapseButton"] {
+            display: flex !important;
+            visibility: visible !important;
+            background-color: #2563EB !important;
+            color: #FFFFFF !important;
+            border-radius: 8px !important;
+            margin: 8px !important;
+            padding: 4px !important;
+            z-index: 999999 !important;
+            border: 1px solid #38BDF8 !important;
+        }
+
+        /* 3. PERMANENTLY HIDE MANAGE APP & FOOTER BADGES */
+        footer, 
+        [data-testid="stStatusWidget"],
+        [data-testid="manage-app-button"],
+        .stAppDeployButton,
+        #MainMenu,
+        div[class*="viewerBadge"] {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
             pointer-events: none !important;
         }
 
-        /* FORCE MAKE SIDEBAR TOGGLE BUTTON HIGHLY VISIBLE (BLUE ARROW BUTTON) */
-        [data-testid="stSidebarNav"] { display: block !important; }
-        button[data-testid="baseButton-header"], button[data-testid="stHeaderNavButton"] {
-            display: block !important;
-            visibility: visible !important;
-            background-color: #2563EB !important;
-            color: #FFFFFF !important;
-            border-radius: 8px !important;
-            padding: 4px 8px !important;
-            border: 1px solid #38BDF8 !important;
-        }
-
+        /* 4. MAIN APP BACKGROUND & TYPOGRAPHY */
         html, body, [data-testid="stAppViewContainer"], .main {
             background-color: #0F172A !important;
             color: #E2E8F0 !important;
@@ -80,7 +93,7 @@ st.markdown(
         
         .block-container {
             max-width: 99% !important;
-            padding: 1.5rem 2rem !important;
+            padding: 1rem 2rem !important;
         }
         
         /* SIDEBAR SYSTEM PANEL */
