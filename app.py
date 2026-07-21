@@ -44,22 +44,32 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- GLOBAL STYLING + AGGRESSIVE HIDER FOR MANAGE APP TOOLBAR ---
+# --- GLOBAL STYLING + ALWAYS VISIBLE SIDEBAR ARROW ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* HIDE STREAMLIT FOOTER & BOTTOM-RIGHT MANAGE APP TOOLBAR */
-        #MainMenu, footer, header, [data-testid="stHeader"], [data-testid="stStatusWidget"],
+        /* HIDE FOOTER AND MANAGE APP BAR ONLY */
+        #MainMenu, footer, [data-testid="stStatusWidget"],
         .stAppToolbar, [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
         div[class*="viewerBadge"], div[class*="manageApp"] {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
-            height: 0px !important;
-            width: 0px !important;
             pointer-events: none !important;
+        }
+
+        /* FORCE MAKE SIDEBAR TOGGLE BUTTON HIGHLY VISIBLE (BLUE ARROW BUTTON) */
+        [data-testid="stSidebarNav"] { display: block !important; }
+        button[data-testid="baseButton-header"], button[data-testid="stHeaderNavButton"] {
+            display: block !important;
+            visibility: visible !important;
+            background-color: #2563EB !important;
+            color: #FFFFFF !important;
+            border-radius: 8px !important;
+            padding: 4px 8px !important;
+            border: 1px solid #38BDF8 !important;
         }
 
         html, body, [data-testid="stAppViewContainer"], .main {
