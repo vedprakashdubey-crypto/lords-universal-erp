@@ -439,6 +439,7 @@ with st.sidebar:
         "📑 Issue / Allocate Item",
         "🛠️ Repair & Maintenance",
         "⏱️ Warranty Records",
+        "📁 Import & Export Data",
     ]
     if st.session_state.user_role == "Admin":
         menu_options.append("📜 Activity Logs (Audit)")
@@ -1109,7 +1110,144 @@ elif menu_selection == "⏱️ Warranty Records":
     render_comprehensive_ledger(df)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 7: AUDIT LOGS (ADMIN ONLY) ====================
+# ==================== MODULE 7: IMPORT & EXPORT DATA ====================
+elif menu_selection == "📁 Import & Export Data":
+    st.markdown(
+        "<div class='workspace-clean-card'><div class='card-heading'>📥 BULK IMPORT DATA (EXCEL UPLOAD)</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.write(
+        "Aap ek sath multiple assets ki Excel file upload karke system me import kar sakte hain."
+    )
+
+    col_imp1, col_imp2 = st.columns([2, 1])
+
+    with col_imp1:
+        uploaded_file = st.file_drop_button
+        uploaded_file = st.file_uploader(
+            "Select Excel File (.xlsx)", type=["xlsx", "xls"]
+        )
+        import_mode = st.radio(
+            "Import Mode Select Karein:",
+            [
+                "➕ Merge / Append (Existing data ke aage add karein)",
+                "🔄 Overwrite / Replace (Naye data se poora database replace karein)",
+            ],
+        )
+
+        if st.button("🚀 START IMPORT PROCESS") and uploaded_file is not None:
+            try:
+                imported_df = pd.read_excel(uploaded_file)
+                imported_df = imported_df.fillna("-").astype(str)
+
+                # Ensure required columns exist
+                for col in COLUMNS_LIST:
+                    if col not in imported_df.columns:
+                        imported_df[col] = "-"
+
+                imported_df = imported_df[COLUMNS_LIST]
+
+                if "Merge" in import_mode:
+                    # Append new items
+                    combined_df = pd.concat(
+                        [df, imported_df], ignore_index=True
+                    )
+                    combined_df = combined_df.drop_duplicates(
+                        subset=["Asset Code"], keep="last"
+                    )
+                    commit_database_file(combined_df)
+                    log_activity(
+                        "BULK_IMPORT",
+                        "-",
+                        f"Imported {len(imported_df)} records (Merge mode)",
+                    )
+                    st.success(
+                        f"✅ Successfully Imported & Merged {len(imported_df)} records!"
+                    )
+                else:
+                    # Replace completely
+                    commit_database_file(imported_df)
+                    log_activity(
+                        "BULK_IMPORT_REPLACE",
+                        "-",
+                        f"Replaced database with {len(imported_df)} records",
+                    )
+                    st.success(
+                        f"✅ Database replaced with {len(imported_df)} new records!"
+                    )
+
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
+
+    with col_imp2:
+        st.markdown("### 📄 Download Sample Template")
+        st.write(
+            "Bulk import karne ke liye is template format me data fill karein:"
+        )
+
+        sample_df = pd.DataFrame(columns=COLUMNS_LIST)
+        sample_df.loc[0] = [
+            "LUC-LPT-001",
+            "HP Laptop",
+            "Laptop",
+            "HP",
+            "ProBook 440 G8",
+            "SN123456",
+            "i5 11th Gen",
+            "8GB",
+            "512GB SSD",
+            "Windows 11",
+            "00:1A:2B:3C:4D:5E",
+            "192.168.1.50",
+            "2024-01-15",
+            "INV-9988",
+            "Dell Corp",
+            "55000",
+            "2024-01-15",
+            "2027-01-15",
+            "LAB 101",
+            "Rahul Sharma",
+            "IT",
+            "Issued",
+            "Sample Row",
+        ]
+
+        sample_stream = BytesIO()
+        with pd.ExcelWriter(sample_stream, engine="openpyxl") as sw:
+            sample_df.to_excel(sw, index=False)
+
+        st.download_button(
+            "📥 Download Blank Sample Excel Format",
+            data=sample_stream.getvalue(),
+            file_name="ERP_Import_Sample_Template.xlsx",
+            use_container_width=True,
+        )
+
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
+    st.markdown(
+        "<div class='workspace-clean-card'><div class='card-heading'>📤 FULL BACKUP EXPORT (DATABASE DOWNLOAD)</div>",
+        unsafe_allow_html=True,
+    )
+    st.write(
+        "Poore current ERP Database (Saare 260+ Items) ki Excel file ka backup download karne ke liye niche button par click karein:"
+    )
+
+    full_export_stream = BytesIO()
+    with pd.ExcelWriter(full_export_stream, engine="openpyxl") as fw:
+        df.to_excel(fw, index=False)
+
+    st.download_button(
+        f"💾 DOWNLOAD COMPLETE DATABASE BACKUP ({len(df)} ITEMS)",
+        data=full_export_stream.getvalue(),
+        file_name=f"LUC_IT_Asset_Master_Backup_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        use_container_width=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== MODULE 8: AUDIT LOGS (ADMIN ONLY) ====================
 elif menu_selection == "📜 Activity Logs (Audit)":
     if st.session_state.user_role == "Admin":
         st.markdown(
@@ -1137,7 +1275,7 @@ elif menu_selection == "📜 Activity Logs (Audit)":
             st.info("No user activity logged yet.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 8: RESET PASSWORDS (ADMIN ONLY) ====================
+# ==================== MODULE 9: RESET PASSWORDS (ADMIN ONLY) ====================
 elif menu_selection == "🔑 Reset User Passwords":
     if st.session_state.user_role == "Admin":
         st.markdown(
