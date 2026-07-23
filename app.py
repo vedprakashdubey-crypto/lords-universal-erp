@@ -1,7 +1,9 @@
+import base64
 import os
 from datetime import datetime
 from io import BytesIO
 import pandas as pd
+import requests
 import streamlit as st
 
 # EXCEL FILE DEFINITIONS
@@ -371,11 +373,47 @@ def load_database_file():
     return pd.DataFrame(columns=COLUMNS_LIST)
 
 
+# --- AUTOMATIC GITHUB COMMIT ENGINE (PERMANENT DATA SAVER) ---
 def commit_database_file(dataframe):
+    # 1. Local Disk Save
     try:
         dataframe.to_excel(EXCEL_FILE, index=False)
     except Exception as e:
-        st.error(f"Error saving database: {e}")
+        st.error(f"Error saving local database: {e}")
+
+    # 2. Push directly to GitHub Repository using API
+    token = st.secrets.get("GITHUB_TOKEN")
+    repo = st.secrets.get(
+        "REPO_NAME", "vedprakashdubey-crypto/lords-universal-erp"
+    )
+
+    if token and repo:
+        try:
+            url = f"https://api.github.com/repos/{repo}/contents/{EXCEL_FILE}"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+
+            res = requests.get(url, headers=headers)
+            sha = res.json().get("sha", "") if res.status_code == 200 else ""
+
+            with open(EXCEL_FILE, "rb") as f:
+                content = base64.b64encode(f.read()).decode("utf-8")
+
+            payload = {
+                "message": f"ERP Data Update - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "content": content,
+                "branch": "main",
+            }
+            if sha:
+                payload["sha"] = sha
+
+            put_res = requests.put(url, headers=headers, json=payload)
+            if put_res.status_code in [200, 201]:
+                st.toast("✅ Data GitHub Par Permanent Save Ho Gaya!", icon="💾")
+        except Exception as e:
+            print("GitHub Auto Sync Error:", e)
 
 
 df = load_database_file()
