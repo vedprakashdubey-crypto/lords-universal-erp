@@ -287,7 +287,8 @@ USERS = {
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
   st.session_state.logged_user = ""
-  st.session_state.user_role = ""
+  st.session_state.user_role = "Admin"
+  st.session_state.user_name = "Vedprakash Dubey"
 
 # --- LOGIN FORM ---
 if not st.session_state.authenticated:
@@ -358,14 +359,18 @@ with st.sidebar:
   )
 
   role_badge = (
-      "👑 FULL ADMIN" if st.session_state.user_role == "Admin" else "👤 ASSISTANT"
+      "👑 FULL ADMIN"
+      if st.session_state.get("user_role") == "Admin"
+      else "👤 ASSISTANT"
   )
+  user_display_name = st.session_state.get("user_name", "Vedprakash Dubey")
+
   st.markdown(
       f"<div style='background:#0F172A; padding:10px; border-radius:8px;"
       " border:1px solid #334155; margin-bottom:15px;'><span"
       " style='font-size:12px; color:#38BDF8;"
       f" font-weight:700;'>{role_badge}</span><br><span style='font-size:13px;"
-      f" color:#FFFFFF;'>{st.session_state.user_name}</span></div>",
+      f" color:#FFFFFF;'>{user_display_name}</span></div>",
       unsafe_allow_html=True,
   )
 
