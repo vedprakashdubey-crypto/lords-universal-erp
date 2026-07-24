@@ -37,9 +37,9 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- VERIFIED GOOGLE SHEETS CONFIGURATION ---
+# --- EXACT VERIFIED GOOGLE SHEETS CREDENTIALS ---
 GOOGLE_SHEET_ID = "1IiU4QesdM_8Qtn3tW1_9QGKU1_CQr0Ga6LHwg7Bwb9g"
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxygXOZTUj4gRNAjpR7AME_7_XOi-nl1NNr7SfuoL-3AePP1qT39NbRP09b04QSqfaiaw/exec"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxygXOZTUJ4gRNAjpR7AME_7_XOi-nl1NNr7SfuoL-3AePP1qT39NbRP09b04QSqfaiaw/exec"
 
 
 def load_database_file():
@@ -78,7 +78,6 @@ def load_database_file():
 
 def commit_database_file(dataframe):
   try:
-    # Clean all data strictly into standard strings for Google Sheets
     clean_df = dataframe.copy()
     for col in clean_df.columns:
       clean_df[col] = (
@@ -94,7 +93,12 @@ def commit_database_file(dataframe):
     rows = clean_df.values.tolist()
 
     payload = {"action": "save_all", "columns": columns, "rows": rows}
-    response = requests.post(WEB_APP_URL, json=payload, timeout=30)
+    response = requests.post(
+        WEB_APP_URL,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
 
     if response.status_code == 200:
       st.toast("✅ Data Google Sheet par permanently save ho gaya!", icon="💾")
