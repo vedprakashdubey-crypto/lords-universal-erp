@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import BytesIO
+import re
 import pandas as pd
 import streamlit as st
 from supabase import create_client
@@ -37,22 +38,40 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- DIRECT HARDCODED SUPABASE CONNECTION ---
-SUPABASE_URL = "https://lhghbrbzhttfdyrorqfi.supabase.co"
-SUPABASE_KEY = "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
+
+# --- AUTOMATIC INVISIBLE CHARACTER CLEANER ---
+def clean_string_input(val):
+    if not val:
+        return ""
+    # Remove all non-ascii invisible characters and unicode non-breaking spaces
+    val = str(val).replace("\xa0", "").replace(" ", "").strip()
+    return re.sub(r"[^\x00-\x7F]+", "", val)
+
+
+# Raw credentials
+RAW_URL = st.secrets.get("SUPABASE_URL", "https://lhghbrbzhttfdyrorqfi.supabase.co")
+RAW_KEY = st.secrets.get(
+    "SUPABASE_KEY", "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
+)
+
+# Cleaned credentials
+SUPABASE_URL = clean_string_input(RAW_URL)
+SUPABASE_KEY = clean_string_input(RAW_KEY)
 
 
 @st.cache_resource
 def init_supabase():
     try:
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
+        if SUPABASE_URL and SUPABASE_KEY:
+            return create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
-        return None
+        st.error(f"Initialization Error: {e}")
+    return None
 
 
 supabase = init_supabase()
 
-# --- CSS FIX ---
+# --- PROFESSIONAL STYLING ---
 st.markdown(
     """
     <style>
@@ -260,13 +279,13 @@ def load_database_file():
             )
         return data[COLUMNS_LIST]
     except Exception as e:
-        st.error(f"Cloud Database Error: {e}")
+        st.error(f"Cloud Database Fetch Error: {e}")
         return pd.DataFrame(columns=COLUMNS_LIST)
 
 
 def commit_database_file(dataframe):
     if not supabase:
-        st.error("Database connection configuration missing.")
+        st.error("Database connection missing or failed to initialize.")
         return False
 
     try:
