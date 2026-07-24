@@ -270,15 +270,21 @@ def commit_database_file(dataframe):
     try:
         records = []
         for _, row in dataframe.iterrows():
-            rec = {
-                col.lower().replace(" ", "_"): str(row[col])
-                for col in COLUMNS_LIST
-            }
+            rec = {}
+            for col in COLUMNS_LIST:
+                db_col_name = col.lower().replace(" ", "_")
+                val = str(row[col]) if pd.notna(row[col]) else "-"
+                rec[db_col_name] = val if val != "" else "-"
             records.append(rec)
 
-        supabase.table("assets").upsert(
-            records, on_conflict="asset_code"
-        ).execute()
+        # Batch upsert in chunks of 50 to avoid payload errors
+        chunk_size = 50
+        for i in range(0, len(records), chunk_size):
+            chunk = records[i : i + chunk_size]
+            supabase.table("assets").upsert(
+                chunk, on_conflict="asset_code"
+            ).execute()
+
         st.toast("✅ Data Cloud Database Me Save Ho Gaya!", icon="💾")
     except Exception as e:
         st.error(f"Failed to update cloud database: {e}")
@@ -1074,6 +1080,15 @@ elif menu_selection == "📁 Import & Export Data":
                     try:
                         imported_df = pd.read_excel(uploaded_file)
                         imported_df = imported_df.fillna("-").astype(str)
+
+                        # Match column names case-insensitively
+                        rename_map = {}
+                        for col in imported_df.columns:
+                            clean_c = col.strip().lower().replace("_", " ")
+                            for target_col in COLUMNS_LIST:
+                                if target_col.strip().lower() == clean_c:
+                                    rename_map[col] = target_col
+                        imported_df = imported_df.rename(columns=rename_map)
 
                         for col in COLUMNS_LIST:
                             if col not in imported_df.columns:
