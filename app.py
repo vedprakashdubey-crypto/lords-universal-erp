@@ -51,7 +51,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# --- PERFECT CSS FIX ---
+# --- CSS FIX ---
 st.markdown(
     """
     <style>
@@ -255,6 +255,7 @@ def load_database_file():
                 .str.strip()
                 .replace("nan", "-")
                 .replace("None", "-")
+                .replace("<NaT>", "-")
             )
         return data[COLUMNS_LIST]
     except Exception as e:
@@ -273,17 +274,34 @@ def commit_database_file(dataframe):
             rec = {}
             for col in COLUMNS_LIST:
                 db_col_name = col.lower().replace(" ", "_")
-                val = str(row[col]) if pd.notna(row[col]) else "-"
-                rec[db_col_name] = val if val != "" else "-"
+                val = row[col]
+
+                # Convert Datetime to string cleanly
+                if pd.isna(val) or val is None:
+                    val_str = "-"
+                elif isinstance(val, (pd.Timestamp, datetime)):
+                    val_str = val.strftime("%Y-%m-%d")
+                else:
+                    val_str = str(val).strip()
+
+                if val_str in ["", "nan", "None", "<NaT>", "NaT"]:
+                    val_str = "-"
+
+                rec[db_col_name] = val_str
             records.append(rec)
 
-        # Batch upsert in chunks of 50 to avoid payload errors
-        chunk_size = 50
+        # Batch upload in small batches of 25 items
+        chunk_size = 25
+        progress_bar = st.progress(0)
+        total_batches = (len(records) + chunk_size - 1) // chunk_size
+
         for i in range(0, len(records), chunk_size):
             chunk = records[i : i + chunk_size]
             supabase.table("assets").upsert(
                 chunk, on_conflict="asset_code"
             ).execute()
+            current_batch = (i // chunk_size) + 1
+            progress_bar.progress(current_batch / total_batches)
 
         st.toast("✅ Data Cloud Database Me Save Ho Gaya!", icon="💾")
     except Exception as e:
@@ -1079,12 +1097,11 @@ elif menu_selection == "📁 Import & Export Data":
                 if uploaded_file is not None:
                     try:
                         imported_df = pd.read_excel(uploaded_file)
-                        imported_df = imported_df.fillna("-").astype(str)
 
-                        # Match column names case-insensitively
+                        # Standardize columns
                         rename_map = {}
                         for col in imported_df.columns:
-                            clean_c = col.strip().lower().replace("_", " ")
+                            clean_c = str(col).strip().lower().replace("_", " ")
                             for target_col in COLUMNS_LIST:
                                 if target_col.strip().lower() == clean_c:
                                     rename_map[col] = target_col
