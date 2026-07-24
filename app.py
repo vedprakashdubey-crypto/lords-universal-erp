@@ -266,7 +266,7 @@ def load_database_file():
 def commit_database_file(dataframe):
     if not supabase:
         st.error("Database connection configuration missing.")
-        return
+        return False
 
     try:
         records = []
@@ -276,7 +276,6 @@ def commit_database_file(dataframe):
                 db_col_name = col.lower().replace(" ", "_")
                 val = row[col]
 
-                # Convert Datetime to string cleanly
                 if pd.isna(val) or val is None:
                     val_str = "-"
                 elif isinstance(val, (pd.Timestamp, datetime)):
@@ -290,7 +289,6 @@ def commit_database_file(dataframe):
                 rec[db_col_name] = val_str
             records.append(rec)
 
-        # Batch upload in small batches of 25 items
         chunk_size = 25
         progress_bar = st.progress(0)
         total_batches = (len(records) + chunk_size - 1) // chunk_size
@@ -304,8 +302,10 @@ def commit_database_file(dataframe):
             progress_bar.progress(current_batch / total_batches)
 
         st.toast("✅ Data Cloud Database Me Save Ho Gaya!", icon="💾")
+        return True
     except Exception as e:
         st.error(f"Failed to update cloud database: {e}")
+        return False
 
 
 df = load_database_file()
@@ -1073,17 +1073,19 @@ elif menu_selection == "⏱️ Warranty Records":
 # ==================== MODULE 7: IMPORT & EXPORT DATA ====================
 elif menu_selection == "📁 Import & Export Data":
     st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>📥 BULK IMPORT DATA (EXCEL UPLOAD)</div>",
+        "<div class='workspace-clean-card'><div class='card-heading'>📥 BULK IMPORT DATA (DIRECT EXCEL UPLOAD)</div>",
         unsafe_allow_html=True,
     )
 
     col_imp1, col_imp2 = st.columns([2, 1])
 
     with col_imp1:
-        with st.form("bulk_import_form", clear_on_submit=True):
-            uploaded_file = st.file_uploader(
-                "Select Excel File (.xlsx)", type=["xlsx", "xls"]
-            )
+        uploaded_file = st.file_uploader(
+            "Select Excel File (.xlsx)", type=["xlsx", "xls"]
+        )
+
+        if uploaded_file is not None:
+            st.info(f"📁 Selected File: {uploaded_file.name}")
             import_mode = st.radio(
                 "Import Mode Select Karein:",
                 [
@@ -1091,14 +1093,12 @@ elif menu_selection == "📁 Import & Export Data":
                     "🔄 Overwrite / Replace (Naye data se poora database replace karein)",
                 ],
             )
-            submit_import = st.form_submit_button("🚀 START IMPORT PROCESS")
 
-            if submit_import:
-                if uploaded_file is not None:
-                    try:
+            if st.button("🚀 UPLOAD TO CLOUD DATABASE NOW"):
+                try:
+                    with st.spinner("Processing & Uploading to Supabase..."):
                         imported_df = pd.read_excel(uploaded_file)
 
-                        # Standardize columns
                         rename_map = {}
                         for col in imported_df.columns:
                             clean_c = str(col).strip().lower().replace("_", " ")
@@ -1120,21 +1120,17 @@ elif menu_selection == "📁 Import & Export Data":
                             combined_df = combined_df.drop_duplicates(
                                 subset=["Asset Code"], keep="last"
                             )
-                            commit_database_file(combined_df)
-                            st.success(
-                                f"✅ Successfully Imported & Merged {len(imported_df)} records!"
-                            )
+                            success = commit_database_file(combined_df)
                         else:
-                            commit_database_file(imported_df)
-                            st.success(
-                                f"✅ Database replaced with {len(imported_df)} new records!"
-                            )
+                            success = commit_database_file(imported_df)
 
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error processing file: {e}")
-                else:
-                    st.error("Kripya pehle Excel file select kijiye!")
+                        if success:
+                            st.success(
+                                f"🎉 Successfully Uploaded {len(imported_df)} Records to Cloud Database!"
+                            )
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Error processing file: {e}")
 
     with col_imp2:
         st.markdown("### 📄 Download Sample Template")
