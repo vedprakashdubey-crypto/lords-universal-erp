@@ -37,7 +37,7 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- EXACT VERIFIED GOOGLE SHEETS CREDENTIALS ---
+# --- VERIFIED GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = "1IiU4QesdM_8Qtn3tW1_9QGKU1_CQr0Ga6LHwg7Bwb9g"
 WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxygXOZTUJ4gRNAjpR7AME_7_XOi-nl1NNr7SfuoL-3AePP1qT39NbRP09b04QSqfaiaw/exec"
 
@@ -93,12 +93,7 @@ def commit_database_file(dataframe):
     rows = clean_df.values.tolist()
 
     payload = {"action": "save_all", "columns": columns, "rows": rows}
-    response = requests.post(
-        WEB_APP_URL,
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=30,
-    )
+    response = requests.post(WEB_APP_URL, json=payload, timeout=30)
 
     if response.status_code == 200:
       st.toast("✅ Data Google Sheet par permanently save ho gaya!", icon="💾")
