@@ -1,8 +1,9 @@
 from datetime import datetime
 from io import BytesIO
-import os
+import re
 import pandas as pd
 import streamlit as st
+from supabase import create_client
 
 # Page configuration
 st.set_page_config(
@@ -37,7 +38,21 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-LOCAL_FILE = "assets.xlsx"
+# --- REAL PERMANENT SUPABASE CLOUD DATABASE ---
+SUPABASE_URL = "https://lhghbrbzfttfdyrorqfi.supabase.co"
+SUPABASE_KEY = "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
+
+
+@st.cache_resource
+def init_supabase():
+    try:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        st.error(f"Cloud Connection Failed: {e}")
+        return None
+
+
+supabase = init_supabase()
 
 # --- PROFESSIONAL STYLING ---
 st.markdown(
@@ -215,16 +230,20 @@ st.markdown(
 
 
 def load_database_file():
-    if not os.path.exists(LOCAL_FILE):
+    if not supabase:
+        # Fallback to local file if supabase fails
+        if pd.Series(["assets.xlsx"]).apply(lambda x: pd.io.common.file_exists(x)).iloc[0]:
+            return pd.read_excel("assets.xlsx").fillna("-")
         return pd.DataFrame(columns=COLUMNS_LIST)
     try:
-        data = pd.read_excel(LOCAL_FILE)
-        data = data.fillna("-")
+        response = supabase.table("assets").select("*").execute()
+        data = pd.DataFrame(response.data)
+        if data.empty:
+            return pd.DataFrame(columns=COLUMNS_LIST)
 
-        # Map column names safely
         rename_map = {}
         for col in data.columns:
-            clean_c = str(col).strip().lower().replace("_", " ")
+            clean_c = col.lower().replace("_", " ")
             for target_col in COLUMNS_LIST:
                 if target_col.lower() == clean_c:
                     rename_map[col] = target_col
@@ -234,6 +253,7 @@ def load_database_file():
             if col not in data.columns:
                 data[col] = "-"
 
+        data = data.fillna("-")
         for col in data.columns:
             data[col] = (
                 data[col]
@@ -245,17 +265,52 @@ def load_database_file():
             )
         return data[COLUMNS_LIST]
     except Exception as e:
-        st.error(f"Excel Read Error: {e}")
+        st.error(f"Cloud Read Error: {e}")
         return pd.DataFrame(columns=COLUMNS_LIST)
 
 
 def commit_database_file(dataframe):
+    if not supabase:
+        st.error("Database connection missing.")
+        return False
+
     try:
-        dataframe.to_excel(LOCAL_FILE, index=False)
-        st.toast("✅ Master File Updated Successfully!", icon="💾")
+        records = []
+        for _, row in dataframe.iterrows():
+            rec = {}
+            for col in COLUMNS_LIST:
+                db_col_name = col.lower().replace(" ", "_")
+                val = row[col]
+
+                if pd.isna(val) or val is None:
+                    val_str = "-"
+                elif isinstance(val, (pd.Timestamp, datetime)):
+                    val_str = val.strftime("%Y-%m-%d")
+                else:
+                    val_str = str(val).strip()
+
+                if val_str in ["", "nan", "None", "<NaT>", "NaT"]:
+                    val_str = "-"
+
+                rec[db_col_name] = val_str
+            records.append(rec)
+
+        chunk_size = 25
+        progress_bar = st.progress(0)
+        total_batches = (len(records) + chunk_size - 1) // chunk_size
+
+        for i in range(0, len(records), chunk_size):
+            chunk = records[i : i + chunk_size]
+            supabase.table("assets").upsert(
+                chunk, on_conflict="asset_code"
+            ).execute()
+            current_batch = (i // chunk_size) + 1
+            progress_bar.progress(current_batch / total_batches)
+
+        st.toast("✅ Data Saved Permanently to Cloud Database!", icon="💾")
         return True
     except Exception as e:
-        st.error(f"Failed to save file: {e}")
+        st.error(f"Failed to update cloud database: {e}")
         return False
 
 
@@ -1024,7 +1079,7 @@ elif menu_selection == "⏱️ Warranty Records":
 # ==================== MODULE 7: IMPORT & EXPORT DATA ====================
 elif menu_selection == "📁 Import & Export Data":
     st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>📥 BULK IMPORT DATA (DIRECT EXCEL UPLOAD)</div>",
+        "<div class='workspace-clean-card'><div class='card-heading'>📥 BULK IMPORT DATA (SUPABASE CLOUD SAVE)</div>",
         unsafe_allow_html=True,
     )
 
@@ -1045,9 +1100,9 @@ elif menu_selection == "📁 Import & Export Data":
                 ],
             )
 
-            if st.button("🚀 SAVE DATA TO MASTER SYSTEM"):
+            if st.button("🚀 UPLOAD TO SUPABASE CLOUD PERMANENTLY"):
                 try:
-                    with st.spinner("Updating Master Inventory..."):
+                    with st.spinner("Saving Permanently to Supabase Cloud Database..."):
                         imported_df = pd.read_excel(uploaded_file)
 
                         rename_map = {}
@@ -1077,7 +1132,7 @@ elif menu_selection == "📁 Import & Export Data":
 
                         if success:
                             st.success(
-                                f"🎉 Successfully Loaded {len(imported_df)} Records!"
+                                f"🎉 Successfully Loaded & Saved {len(imported_df)} Records to Cloud!"
                             )
                             st.rerun()
                 except Exception as e:
