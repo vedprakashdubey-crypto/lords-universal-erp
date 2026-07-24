@@ -38,37 +38,38 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
+# Exact Published CSV Link from Google Sheets
+PUBLISHED_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSsYM5MDGrSqD-g8nXEqSMQp71g9LTAfQ3FnrRvabNmbknht69U4ZnQ0vKqbAl6RO4OZDZr5hZVPcP/pub?output=csv"
 GOOGLE_SHEET_ID = "1IiU4QesdM_8Qtn3tW1_9QGKU1_CQr0Ga6LHwg7Bwb9g"
 LOCAL_FILE = "assets.xlsx"
 
 
 def load_database_file():
-  # 1. Try Google Sheet Connection
+  # 1. Fetch from Published Google Sheet CSV
   try:
-    url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
     }
-    response = requests.get(url, headers=headers, timeout=10)
+    response = requests.get(PUBLISHED_CSV_URL, headers=headers, timeout=10)
 
     if response.status_code == 200:
       data = pd.read_csv(BytesIO(response.content))
       if not data.empty and len(data) > 0:
         data = clean_dataframe(data)
-        return data, "Google Sheet (Live)"
+        return data, "Google Sheet (Live Sync)"
   except Exception as e:
-    st.sidebar.warning(f"Google Sheet Syncing Notice: {e}")
+    st.sidebar.warning(f"Google Sheet Fetch Notice: {e}")
 
-  # 2. Fallback to local assets.xlsx if Google Sheet has any network issue
+  # 2. Fallback to Local assets.xlsx
   if os.path.exists(LOCAL_FILE):
     try:
       data = pd.read_excel(LOCAL_FILE)
       data = clean_dataframe(data)
       return data, "Local Master Backup"
     except Exception as e:
-      st.sidebar.error(f"Local file error: {e}")
+      st.sidebar.error(f"Local file read error: {e}")
 
   return pd.DataFrame(columns=COLUMNS_LIST), "None"
 
@@ -177,20 +178,20 @@ with st.sidebar:
       unsafe_allow_html=True,
   )
 
-  st.info(f"📡 Data Source: **{data_source}**")
+  st.info(f"📡 System Source: **{data_source}**")
 
   if st.button("🚪 LOGOUT"):
     st.session_state.authenticated = False
     st.rerun()
 
-  if st.button("🔄 REFRESH SHEET DATA"):
+  if st.button("🔄 REFRESH LIVE SHEET"):
     st.rerun()
 
   menu_selection = st.radio(
       "NAVIGATION:",
       [
           "📊 Live Dashboard",
-          "➕ Add New Entry Link",
+          "➕ Live Google Sheet Link",
           "📁 Download Backup",
       ],
   )
@@ -279,11 +280,11 @@ if menu_selection == "📊 Live Dashboard":
   st.markdown(f"**Showing {len(df_show)} Items:**")
   render_table(df_show)
 
-elif menu_selection == "➕ Add New Entry Link":
-  st.markdown("### 📝 Direct Google Sheet Entry")
+elif menu_selection == "➕ Live Google Sheet Link":
+  st.markdown("### 📝 Direct Live Sheet Access")
   st.success(
-      "✅ Nayi entry ke liye Google Sheet me new row add karein aur app me '🔄"
-      " REFRESH SHEET DATA' button dabayein."
+      "✅ Aapki Google Sheet live connected hai! Naye records direct Sheet me"
+      " enter karein aur ERP App par '🔄 REFRESH LIVE SHEET' dabayein."
   )
   st.markdown(
       f"🔗 **Google Sheet Link:**"
@@ -295,7 +296,7 @@ elif menu_selection == "📁 Download Backup":
   with pd.ExcelWriter(io_stream, engine="openpyxl") as ew:
     df.to_excel(ew, index=False)
   st.download_button(
-      f"💾 DOWNLOAD EXCEL BACKUP ({len(df)} ITEMS)",
+      f"💾 DOWNLOAD COMPLETE EXCEL BACKUP ({len(df)} ITEMS)",
       data=io_stream.getvalue(),
       file_name=f"LUC_IT_Asset_Backup_{datetime.now().strftime('%Y%m%d')}.xlsx",
   )
