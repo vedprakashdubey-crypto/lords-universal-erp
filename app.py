@@ -38,8 +38,8 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- REAL PERMANENT SUPABASE CLOUD DATABASE ---
-SUPABASE_URL = "https://lhghbrbzfttfdyrorqfi.supabase.co"
+# --- EXACT VERIFIED SUPABASE CREDENTIALS ---
+SUPABASE_URL = "https://lhghbrbzhttfdyrorqfi.supabase.co"
 SUPABASE_KEY = "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
 
 
@@ -231,9 +231,6 @@ st.markdown(
 
 def load_database_file():
     if not supabase:
-        # Fallback to local file if supabase fails
-        if pd.Series(["assets.xlsx"]).apply(lambda x: pd.io.common.file_exists(x)).iloc[0]:
-            return pd.read_excel("assets.xlsx").fillna("-")
         return pd.DataFrame(columns=COLUMNS_LIST)
     try:
         response = supabase.table("assets").select("*").execute()
@@ -265,7 +262,7 @@ def load_database_file():
             )
         return data[COLUMNS_LIST]
     except Exception as e:
-        st.error(f"Cloud Read Error: {e}")
+        st.error(f"Cloud Connection Issue: {e}")
         return pd.DataFrame(columns=COLUMNS_LIST)
 
 
@@ -307,7 +304,7 @@ def commit_database_file(dataframe):
             current_batch = (i // chunk_size) + 1
             progress_bar.progress(current_batch / total_batches)
 
-        st.toast("✅ Data Saved Permanently to Cloud Database!", icon="💾")
+        st.toast("✅ Saved Permanently to Supabase Cloud!", icon="💾")
         return True
     except Exception as e:
         st.error(f"Failed to update cloud database: {e}")
