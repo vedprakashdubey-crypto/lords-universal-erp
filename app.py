@@ -1,6 +1,8 @@
 from datetime import datetime
 from io import BytesIO
+import os
 import pandas as pd
+import requests
 import streamlit as st
 
 # Page configuration
@@ -36,48 +38,68 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# Verified Google Sheet ID
 GOOGLE_SHEET_ID = "1IiU4QesdM_8Qtn3tW1_9QGKU1_CQr0Ga6LHwg7Bwb9g"
+LOCAL_FILE = "assets.xlsx"
 
 
 def load_database_file():
+  # 1. Try Google Sheet Connection
   try:
-    # Standard Google Sheet Direct CSV Export URL
     url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
-    data = pd.read_csv(url)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+    }
+    response = requests.get(url, headers=headers, timeout=10)
 
-    if data.empty:
-      return pd.DataFrame(columns=COLUMNS_LIST)
-
-    rename_map = {}
-    for col in data.columns:
-      clean_c = str(col).strip().lower().replace("_", " ")
-      for target_col in COLUMNS_LIST:
-        if target_col.lower() == clean_c:
-          rename_map[col] = target_col
-    data = data.rename(columns=rename_map)
-
-    for col in COLUMNS_LIST:
-      if col not in data.columns:
-        data[col] = "-"
-
-    data = data.fillna("-")
-    for col in data.columns:
-      data[col] = (
-          data[col]
-          .astype(str)
-          .str.strip()
-          .replace("nan", "-")
-          .replace("None", "-")
-          .replace("<NaT>", "-")
-      )
-    return data[COLUMNS_LIST]
+    if response.status_code == 200:
+      data = pd.read_csv(BytesIO(response.content))
+      if not data.empty and len(data) > 0:
+        data = clean_dataframe(data)
+        return data, "Google Sheet (Live)"
   except Exception as e:
-    st.error(f"Google Sheet Read Error: {e}")
-    return pd.DataFrame(columns=COLUMNS_LIST)
+    st.sidebar.warning(f"Google Sheet Syncing Notice: {e}")
+
+  # 2. Fallback to local assets.xlsx if Google Sheet has any network issue
+  if os.path.exists(LOCAL_FILE):
+    try:
+      data = pd.read_excel(LOCAL_FILE)
+      data = clean_dataframe(data)
+      return data, "Local Master Backup"
+    except Exception as e:
+      st.sidebar.error(f"Local file error: {e}")
+
+  return pd.DataFrame(columns=COLUMNS_LIST), "None"
 
 
-df = load_database_file()
+def clean_dataframe(data):
+  rename_map = {}
+  for col in data.columns:
+    clean_c = str(col).strip().lower().replace("_", " ")
+    for target_col in COLUMNS_LIST:
+      if target_col.lower() == clean_c:
+        rename_map[col] = target_col
+  data = data.rename(columns=rename_map)
+
+  for col in COLUMNS_LIST:
+    if col not in data.columns:
+      data[col] = "-"
+
+  data = data.fillna("-")
+  for col in data.columns:
+    data[col] = (
+        data[col]
+        .astype(str)
+        .str.strip()
+        .replace("nan", "-")
+        .replace("None", "-")
+        .replace("<NaT>", "-")
+    )
+  return data[COLUMNS_LIST]
+
+
+df, data_source = load_database_file()
 
 # --- STYLING ---
 st.markdown(
@@ -106,7 +128,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# LOGIN USER
+# LOGIN
 USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -154,6 +176,8 @@ with st.sidebar:
       " color:#FFFFFF;'>Vedprakash Dubey</span></div>",
       unsafe_allow_html=True,
   )
+
+  st.info(f"📡 Data Source: **{data_source}**")
 
   if st.button("🚪 LOGOUT"):
     st.session_state.authenticated = False
@@ -207,7 +231,7 @@ def render_table(dataframe):
 
 
 if menu_selection == "📊 Live Dashboard":
-  st.markdown(f"### 📦 Live Google Sheet Inventory: {len(df)} Items")
+  st.markdown(f"### 📦 Active System Inventory: {len(df)} Items")
 
   m1, m2, m3, m4, m5 = st.columns(5)
   m1.metric("Total Items", len(df))
