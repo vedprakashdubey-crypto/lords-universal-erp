@@ -37,11 +37,9 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- DIRECT HARDCODED SUPABASE CONNECTION (NO SECRETS NEEDED) ---
+# --- DIRECT HARDCODED SUPABASE CONNECTION ---
 SUPABASE_URL = "https://lhghbrbzhttfdyrorqfi.supabase.co"
-SUPABASE_KEY = st.secrets.get(
-    "SUPABASE_KEY", "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
-)
+SUPABASE_KEY = "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
 
 
 @st.cache_resource
