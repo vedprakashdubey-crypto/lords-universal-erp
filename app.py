@@ -1,15 +1,15 @@
-import base64
-import os
 from datetime import datetime
 from io import BytesIO
 import pandas as pd
-import requests
 import streamlit as st
+from supabase import create_client
 
-# EXCEL FILE DEFINITIONS
-EXCEL_FILE = "assets.xlsx"
-LOG_FILE = "activity_logs.xlsx"
-USERS_FILE = "user_credentials.xlsx"
+# Page configuration
+st.set_page_config(
+    page_title="Lords Universal IT Asset ERP",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 COLUMNS_LIST = [
     "Asset Code",
@@ -37,14 +37,19 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
+# --- SUPABASE DATABASE CONNECTION ---
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 
-# Page configuration
-st.set_page_config(
-    page_title="Lords Universal IT Asset ERP",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+
+@st.cache_resource
+def init_supabase():
+    if SUPABASE_URL and SUPABASE_KEY:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    return None
+
+
+supabase = init_supabase()
 
 # --- PERFECT CSS FIX ---
 st.markdown(
@@ -220,8 +225,69 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def load_database_file():
+    if not supabase:
+        return pd.DataFrame(columns=COLUMNS_LIST)
+    try:
+        response = supabase.table("assets").select("*").execute()
+        data = pd.DataFrame(response.data)
+        if data.empty:
+            return pd.DataFrame(columns=COLUMNS_LIST)
+
+        rename_map = {}
+        for col in data.columns:
+            clean_c = col.lower().replace("_", " ")
+            for target_col in COLUMNS_LIST:
+                if target_col.lower() == clean_c:
+                    rename_map[col] = target_col
+        data = data.rename(columns=rename_map)
+
+        for col in COLUMNS_LIST:
+            if col not in data.columns:
+                data[col] = "-"
+
+        data = data.fillna("-")
+        for col in data.columns:
+            data[col] = (
+                data[col]
+                .astype(str)
+                .str.strip()
+                .replace("nan", "-")
+                .replace("None", "-")
+            )
+        return data[COLUMNS_LIST]
+    except Exception as e:
+        st.error(f"Cloud Database Error: {e}")
+        return pd.DataFrame(columns=COLUMNS_LIST)
+
+
+def commit_database_file(dataframe):
+    if not supabase:
+        st.error("Database connection configuration missing.")
+        return
+
+    try:
+        records = []
+        for _, row in dataframe.iterrows():
+            rec = {
+                col.lower().replace(" ", "_"): str(row[col])
+                for col in COLUMNS_LIST
+            }
+            records.append(rec)
+
+        supabase.table("assets").upsert(
+            records, on_conflict="asset_code"
+        ).execute()
+        st.toast("✅ Data Cloud Database Me Save Ho Gaya!", icon="💾")
+    except Exception as e:
+        st.error(f"Failed to update cloud database: {e}")
+
+
+df = load_database_file()
+
 # --- USER CREDENTIALS MANAGEMENT ---
-DEFAULT_USERS = {
+USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
         "role": "Admin",
@@ -243,53 +309,6 @@ DEFAULT_USERS = {
         "name": "Ahtesham Qureshi",
     },
 }
-
-
-def load_user_credentials():
-    if os.path.exists(USERS_FILE):
-        try:
-            udf = pd.read_excel(USERS_FILE)
-            users_dict = {}
-            for _, r in udf.iterrows():
-                users_dict[str(r["Email"]).strip().lower()] = {
-                    "pass": str(r["Password"]).strip(),
-                    "role": str(r["Role"]).strip(),
-                    "name": str(r["Name"]).strip(),
-                }
-            return users_dict
-        except Exception:
-            return DEFAULT_USERS
-    else:
-        rows = [
-            {
-                "Email": k,
-                "Password": v["pass"],
-                "Role": v["role"],
-                "Name": v["name"],
-            }
-            for k, v in DEFAULT_USERS.items()
-        ]
-        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
-        return DEFAULT_USERS
-
-
-def save_user_credentials(users_dict):
-    rows = [
-        {
-            "Email": k,
-            "Password": v["pass"],
-            "Role": v["role"],
-            "Name": v["name"],
-        }
-        for k, v in users_dict.items()
-    ]
-    try:
-        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
-    except Exception as e:
-        st.error(f"Failed to update passwords: {e}")
-
-
-USERS = load_user_credentials()
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -325,98 +344,6 @@ if not st.session_state.authenticated:
             else:
                 st.error("Invalid Email ID or Password!")
     st.stop()
-
-
-def log_activity(action, asset_code, details):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_log = [now, st.session_state.logged_user, action, asset_code, details]
-    log_df = (
-        pd.read_excel(LOG_FILE)
-        if os.path.exists(LOG_FILE)
-        else pd.DataFrame(columns=LOG_COLUMNS)
-    )
-    log_df = pd.concat(
-        [log_df, pd.DataFrame([new_log], columns=LOG_COLUMNS)], ignore_index=True
-    )
-    try:
-        log_df.to_excel(LOG_FILE, index=False)
-    except Exception:
-        pass
-
-
-def load_logs():
-    return (
-        pd.read_excel(LOG_FILE)
-        if os.path.exists(LOG_FILE)
-        else pd.DataFrame(columns=LOG_COLUMNS)
-    )
-
-
-def load_database_file():
-    if os.path.exists(EXCEL_FILE):
-        try:
-            data = pd.read_excel(EXCEL_FILE).fillna("-")
-            for col in COLUMNS_LIST:
-                if col not in data.columns:
-                    data[col] = "-"
-            for col in data.columns:
-                data[col] = (
-                    data[col]
-                    .astype(str)
-                    .str.strip()
-                    .replace("nan", "-")
-                    .replace("None", "-")
-                )
-            return data[COLUMNS_LIST]
-        except Exception:
-            return pd.DataFrame(columns=COLUMNS_LIST)
-    return pd.DataFrame(columns=COLUMNS_LIST)
-
-
-# --- AUTOMATIC GITHUB COMMIT ENGINE (PERMANENT DATA SAVER) ---
-def commit_database_file(dataframe):
-    # 1. Local Disk Save
-    try:
-        dataframe.to_excel(EXCEL_FILE, index=False)
-    except Exception as e:
-        st.error(f"Error saving local database: {e}")
-
-    # 2. Push directly to GitHub Repository using API
-    token = st.secrets.get("GITHUB_TOKEN")
-    repo = st.secrets.get(
-        "REPO_NAME", "vedprakashdubey-crypto/lords-universal-erp"
-    )
-
-    if token and repo:
-        try:
-            url = f"https://api.github.com/repos/{repo}/contents/{EXCEL_FILE}"
-            headers = {
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-
-            res = requests.get(url, headers=headers)
-            sha = res.json().get("sha", "") if res.status_code == 200 else ""
-
-            with open(EXCEL_FILE, "rb") as f:
-                content = base64.b64encode(f.read()).decode("utf-8")
-
-            payload = {
-                "message": f"ERP Data Update - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                "content": content,
-                "branch": "main",
-            }
-            if sha:
-                payload["sha"] = sha
-
-            put_res = requests.put(url, headers=headers, json=payload)
-            if put_res.status_code in [200, 201]:
-                st.toast("✅ Data GitHub Par Permanent Save Ho Gaya!", icon="💾")
-        except Exception as e:
-            print("GitHub Auto Sync Error:", e)
-
-
-df = load_database_file()
 
 
 def generate_product_prefix(category_str):
@@ -478,9 +405,6 @@ with st.sidebar:
         "⏱️ Warranty Records",
         "📁 Import & Export Data",
     ]
-    if st.session_state.user_role == "Admin":
-        menu_options.append("📜 Activity Logs (Audit)")
-        menu_options.append("🔑 Reset User Passwords")
 
     menu_selection = st.sidebar.radio(
         "NAVIGATION REGISTERS:", menu_options, label_visibility="collapsed"
@@ -828,9 +752,13 @@ elif menu_selection == "➕ Add New Asset":
                 prefix = generate_product_prefix(in_cat)
                 full_prefix = f"LUC-{prefix}-"
 
-                matching_codes = df[df["Asset Code"].str.startswith(full_prefix)][
-                    "Asset Code"
-                ].tolist()
+                matching_codes = (
+                    df[df["Asset Code"].str.startswith(full_prefix)][
+                        "Asset Code"
+                    ].tolist()
+                    if not df.empty
+                    else []
+                )
                 max_num = 0
                 for code in matching_codes:
                     try:
@@ -842,11 +770,6 @@ elif menu_selection == "➕ Add New Asset":
 
                 next_num = max_num + 1
                 generated_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
-
-                if generated_asset_code in df["Asset Code"].values:
-                    generated_asset_code = (
-                        f"{full_prefix}{str(next_num + 1).zfill(3)}"
-                    )
 
                 new_row = [
                     generated_asset_code,
@@ -879,12 +802,6 @@ elif menu_selection == "➕ Add New Asset":
                     ignore_index=True,
                 )
                 commit_database_file(df)
-
-                log_activity(
-                    "ADD_ASSET",
-                    generated_asset_code,
-                    f"Added {in_name.strip()} ({in_cat.strip()}) under Location: {in_loc.strip()}",
-                )
 
                 st.success(
                     f"Successfully Added! Generated Code: **{generated_asset_code}**"
@@ -1014,12 +931,6 @@ elif menu_selection == "✏️ Edit / Update Asset":
                     )
                     commit_database_file(df)
 
-                    log_activity(
-                        "EDIT_ASSET",
-                        selected_edit_code,
-                        f"Updated Name: {edit_name.strip()}, Location: {edit_loc.strip()}, Status: {edit_status}",
-                    )
-
                     st.success(
                         f"Asset Record **{selected_edit_code}** updated successfully!"
                     )
@@ -1071,12 +982,6 @@ elif menu_selection == "📑 Issue / Allocate Item":
                 ]
                 commit_database_file(df)
 
-                log_activity(
-                    "ISSUE_ASSET",
-                    target_asset,
-                    f"Assigned To: {assign_user.strip()}, Location: {target_loc.strip()}",
-                )
-
                 st.success("Allocation updated.")
                 st.rerun()
 
@@ -1119,12 +1024,6 @@ elif menu_selection == "🛠️ Repair & Maintenance":
                     ["Assigned To", "Current Location"],
                 ] = ["-", "MAIN STORE"]
             commit_database_file(df)
-
-            log_activity(
-                "MAINTENANCE_CHANGE",
-                maint_asset,
-                f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}",
-            )
 
             st.success("Maintenance log updated.")
             st.rerun()
@@ -1176,7 +1075,6 @@ elif menu_selection == "📁 Import & Export Data":
                         imported_df = pd.read_excel(uploaded_file)
                         imported_df = imported_df.fillna("-").astype(str)
 
-                        # Standardize columns
                         for col in COLUMNS_LIST:
                             if col not in imported_df.columns:
                                 imported_df[col] = "-"
@@ -1191,21 +1089,11 @@ elif menu_selection == "📁 Import & Export Data":
                                 subset=["Asset Code"], keep="last"
                             )
                             commit_database_file(combined_df)
-                            log_activity(
-                                "BULK_IMPORT",
-                                "-",
-                                f"Imported {len(imported_df)} records (Merge mode)",
-                            )
                             st.success(
                                 f"✅ Successfully Imported & Merged {len(imported_df)} records!"
                             )
                         else:
                             commit_database_file(imported_df)
-                            log_activity(
-                                "BULK_IMPORT_REPLACE",
-                                "-",
-                                f"Replaced database with {len(imported_df)} records",
-                            )
                             st.success(
                                 f"✅ Database replaced with {len(imported_df)} new records!"
                             )
@@ -1275,66 +1163,3 @@ elif menu_selection == "📁 Import & Export Data":
         use_container_width=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 8: AUDIT LOGS (ADMIN ONLY) ====================
-elif menu_selection == "📜 Activity Logs (Audit)":
-    if st.session_state.user_role == "Admin":
-        st.markdown(
-            "<div class='workspace-clean-card'><div class='card-heading'>User Activity & Audit Ledger</div>",
-            unsafe_allow_html=True,
-        )
-
-        logs_df = load_logs()
-        if not logs_df.empty:
-            st.dataframe(
-                logs_df.sort_values(by="Timestamp", ascending=False),
-                use_container_width=True,
-            )
-
-            log_stream = BytesIO()
-            with pd.ExcelWriter(log_stream, engine="openpyxl") as lw:
-                logs_df.to_excel(lw, index=False)
-            st.download_button(
-                "📥 Export Audit Logs Excel",
-                data=log_stream.getvalue(),
-                file_name="ERP_Activity_Logs.xlsx",
-                use_container_width=True,
-            )
-        else:
-            st.info("No user activity logged yet.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 9: RESET PASSWORDS (ADMIN ONLY) ====================
-elif menu_selection == "🔑 Reset User Passwords":
-    if st.session_state.user_role == "Admin":
-        st.markdown(
-            "<div class='workspace-clean-card'><div class='card-heading'>User Password Management</div>",
-            unsafe_allow_html=True,
-        )
-
-        user_list = list(USERS.keys())
-
-        with st.form("reset_pwd_form"):
-            selected_user = st.selectbox(
-                "Select User Account to Reset:", user_list
-            )
-            new_pwd = st.text_input("New Password", type="password")
-            confirm_pwd = st.text_input("Confirm New Password", type="password")
-
-            if st.form_submit_button("🔄 UPDATE PASSWORD NOW"):
-                if new_pwd and new_pwd == confirm_pwd:
-                    USERS[selected_user]["pass"] = new_pwd
-                    save_user_credentials(USERS)
-                    log_activity(
-                        "PASSWORD_RESET",
-                        "-",
-                        f"Admin reset password for user: {selected_user}",
-                    )
-                    st.success(
-                        f"Password for **{selected_user}** has been successfully updated!"
-                    )
-                elif new_pwd != confirm_pwd:
-                    st.error("Passwords do not match!")
-                else:
-                    st.error("Please enter a valid password.")
-        st.markdown("</div>", unsafe_allow_html=True)
