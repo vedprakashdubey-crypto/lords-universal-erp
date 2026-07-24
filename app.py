@@ -36,15 +36,16 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# Live Google Sheet ID
+# Verified Google Sheet ID
 GOOGLE_SHEET_ID = "1IiU4QesdM_8Qtn3tW1_9QGKU1_CQr0Ga6LHwg7Bwb9g"
 
 
-# Har baar fresh Google Sheet data load karega (No cache delay)
 def load_database_file():
   try:
-    url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet1"
+    # Standard Google Sheet Direct CSV Export URL
+    url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
     data = pd.read_csv(url)
+
     if data.empty:
       return pd.DataFrame(columns=COLUMNS_LIST)
 
@@ -72,6 +73,7 @@ def load_database_file():
       )
     return data[COLUMNS_LIST]
   except Exception as e:
+    st.error(f"Google Sheet Read Error: {e}")
     return pd.DataFrame(columns=COLUMNS_LIST)
 
 
@@ -91,11 +93,6 @@ st.markdown(
         }
         .block-container { max-width: 99% !important; padding: 1rem 2rem !important; }
         [data-testid="stSidebar"] { background-color: #1E293B !important; }
-        .workspace-clean-card { background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
-        .card-heading { font-size: 14px; font-weight: 800; color: #38BDF8; margin-bottom: 16px; border-bottom: 2px solid #334155; text-transform: uppercase; }
-        .metric-card-wrapper { background-color: #1E293B !important; border: 1px solid #334155 !important; border-radius: 12px !important; padding: 20px 10px !important; text-align: center; }
-        .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
-        .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; }
         .erp-data-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #1E293B; }
         .erp-data-table th { background: #0F172A !important; color: #38BDF8 !important; font-weight: 700; padding: 12px; border: 1px solid #334155; }
         .erp-data-table td { padding: 10px; border: 1px solid #334155; color: #E2E8F0; }
@@ -109,7 +106,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# LOGIN
+# LOGIN USER
 USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -244,7 +241,7 @@ if menu_selection == "📊 Live Dashboard":
   st.markdown("---")
 
   search_q = st.text_input(
-      "🔍 Search Filter:",
+      "🔍 Live Search Filter:",
       placeholder="Type Asset Code, Brand, Staff Name, Location...",
   )
   df_show = df.copy()
