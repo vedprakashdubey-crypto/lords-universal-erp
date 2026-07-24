@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import BytesIO
+import json
 import pandas as pd
 import requests
 import streamlit as st
@@ -93,7 +94,15 @@ def commit_database_file(dataframe):
     rows = clean_df.values.tolist()
 
     payload = {"action": "save_all", "columns": columns, "rows": rows}
-    response = requests.post(WEB_APP_URL, json=payload, timeout=30)
+
+    # Handle Google Apps Script 302 Redirect cleanly
+    response = requests.post(
+        WEB_APP_URL,
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+        allow_redirects=True,
+        timeout=30,
+    )
 
     if response.status_code == 200:
       st.toast("✅ Data Google Sheet par permanently save ho gaya!", icon="💾")
