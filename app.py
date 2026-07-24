@@ -78,18 +78,32 @@ def load_database_file():
 
 def commit_database_file(dataframe):
   try:
-    columns = dataframe.columns.tolist()
-    rows = dataframe.values.tolist()
+    # Clean all data strictly into standard strings for Google Sheets
+    clean_df = dataframe.copy()
+    for col in clean_df.columns:
+      clean_df[col] = (
+          clean_df[col]
+          .fillna("-")
+          .astype(str)
+          .str.strip()
+          .replace("nan", "-")
+          .replace("None", "-")
+      )
+
+    columns = clean_df.columns.tolist()
+    rows = clean_df.values.tolist()
+
     payload = {"action": "save_all", "columns": columns, "rows": rows}
-    response = requests.post(WEB_APP_URL, json=payload)
+    response = requests.post(WEB_APP_URL, json=payload, timeout=30)
+
     if response.status_code == 200:
       st.toast("✅ Data Google Sheet par permanently save ho gaya!", icon="💾")
       return True
     else:
-      st.error("Failed to sync with Google Sheet.")
+      st.error(f"Sync Error Code: {response.status_code}")
       return False
   except Exception as e:
-    st.error(f"Sync Error: {e}")
+    st.error(f"Sync Connection Error: {e}")
     return False
 
 
