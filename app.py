@@ -37,16 +37,19 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-# --- SUPABASE DATABASE CONNECTION ---
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
+# --- DIRECT HARDCODED SUPABASE CONNECTION (NO SECRETS NEEDED) ---
+SUPABASE_URL = "https://lhghbrbzhttfdyrorqfi.supabase.co"
+SUPABASE_KEY = st.secrets.get(
+    "SUPABASE_KEY", "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
+)
 
 
 @st.cache_resource
 def init_supabase():
-    if SUPABASE_URL and SUPABASE_KEY:
+    try:
         return create_client(SUPABASE_URL, SUPABASE_KEY)
-    return None
+    except Exception as e:
+        return None
 
 
 supabase = init_supabase()
