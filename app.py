@@ -38,25 +38,9 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-
-# --- AUTOMATIC INVISIBLE CHARACTER CLEANER ---
-def clean_string_input(val):
-    if not val:
-        return ""
-    # Remove all non-ascii invisible characters and unicode non-breaking spaces
-    val = str(val).replace("\xa0", "").replace(" ", "").strip()
-    return re.sub(r"[^\x00-\x7F]+", "", val)
-
-
-# Raw credentials
-RAW_URL = st.secrets.get("SUPABASE_URL", "https://lhghbrbzhttfdyrorqfi.supabase.co")
-RAW_KEY = st.secrets.get(
-    "SUPABASE_KEY", "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
-)
-
-# Cleaned credentials
-SUPABASE_URL = clean_string_input(RAW_URL)
-SUPABASE_KEY = clean_string_input(RAW_KEY)
+# --- CORRECT SUPABASE CONNECTION DETAILS ---
+SUPABASE_URL = "https://lhghbrbzfttfdyrorqfi.supabase.co"
+SUPABASE_KEY = "sb_publishable_m6NT2_wKZ8QWJlxgQZCbIw_BjwyDLUg"
 
 
 @st.cache_resource
