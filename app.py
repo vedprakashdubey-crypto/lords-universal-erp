@@ -3,11 +3,7 @@ from datetime import datetime
 from io import BytesIO
 import pandas as pd
 import streamlit as st
-
-# EXCEL FILE DEFINITIONS
-EXCEL_FILE = "assets.xlsx"
-LOG_FILE = "activity_logs.xlsx"
-USERS_FILE = "user_credentials.xlsx"
+import google_db as db
 
 COLUMNS_LIST = [
     "Asset Code",
@@ -50,7 +46,6 @@ st.markdown(
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* HIDE STREAMLIT FOOTER & BOTTOM-RIGHT MANAGE APP TOOLBAR */
         #MainMenu, footer, header, [data-testid="stHeader"], [data-testid="stStatusWidget"],
         .stAppToolbar, [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
         div[class*="viewerBadge"], div[class*="manageApp"] {
@@ -73,7 +68,6 @@ st.markdown(
             padding: 1.5rem 2rem !important;
         }
         
-        /* SIDEBAR SYSTEM PANEL */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
@@ -119,7 +113,6 @@ st.markdown(
             letter-spacing: 0.8px;
         }
 
-        /* METRIC PANEL STYLING */
         .metric-card-wrapper {
             background-color: #1E293B !important;
             border: 1px solid #334155 !important;
@@ -131,7 +124,6 @@ st.markdown(
         .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
         .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; margin-top: 4px; }
 
-        /* BUTTON MODIFIERS */
         .stButton > button {
             width: 100% !important;
             border-top-left-radius: 0px !important;
@@ -154,7 +146,6 @@ st.markdown(
             border-color: #2563EB !important;
         }
 
-        /* DATA GRID MANAGEMENT */
         .erp-data-table {
             width: 100%;
             border-collapse: collapse;
@@ -179,7 +170,6 @@ st.markdown(
         .erp-data-table tr:nth-child(even) td { background-color: #111827; }
         .erp-data-table tr:hover td { background-color: #2D3748 !important; }
         
-        /* STATUS PILLS */
         .status-pill {
             padding: 4px 10px;
             border-radius: 6px;
@@ -204,7 +194,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- USER CREDENTIALS MANAGEMENT ---
+# --- USER CREDENTIALS MANAGEMENT VIA GOOGLE SHEETS ---
 DEFAULT_USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -228,50 +218,38 @@ DEFAULT_USERS = {
     },
 }
 
-
 def load_user_credentials():
-    if os.path.exists(USERS_FILE):
-        try:
-            udf = pd.read_excel(USERS_FILE)
-            users_dict = {}
-            for _, r in udf.iterrows():
-                users_dict[str(r["Email"]).strip().lower()] = {
-                    "pass": str(r["Password"]).strip(),
-                    "role": str(r["Role"]).strip(),
-                    "name": str(r["Name"]).strip(),
-                }
-            return users_dict
-        except Exception:
-            return DEFAULT_USERS
+    udf = db.load_data_from_sheet("Users")
+    if not udf.empty and "Email" in udf.columns:
+        users_dict = {}
+        for _, r in udf.iterrows():
+            users_dict[str(r["Email"]).strip().lower()] = {
+                "pass": str(r["Password"]).strip(),
+                "role": str(r["Role"]).strip(),
+                "name": str(r["Name"]).strip(),
+            }
+        return users_dict
     else:
-        rows = [
-            {
+        # Initial populate Users Tab in Google Sheet
+        for k, v in DEFAULT_USERS.items():
+            db.append_row_to_sheet("Users", {
                 "Email": k,
                 "Password": v["pass"],
                 "Role": v["role"],
-                "Name": v["name"],
-            }
-            for k, v in DEFAULT_USERS.items()
-        ]
-        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
+                "Name": v["name"]
+            })
         return DEFAULT_USERS
 
-
-def save_user_credentials(users_dict):
-    rows = [
-        {
-            "Email": k,
-            "Password": v["pass"],
-            "Role": v["role"],
-            "Name": v["name"],
+def save_user_credentials(email_id, new_pass):
+    user_data = USERS.get(email_id)
+    if user_data:
+        updated_dict = {
+            "Email": email_id,
+            "Password": new_pass,
+            "Role": user_data["role"],
+            "Name": user_data["name"]
         }
-        for k, v in users_dict.items()
-    ]
-    try:
-        pd.DataFrame(rows).to_excel(USERS_FILE, index=False)
-    except Exception as e:
-        st.error(f"Failed to update passwords: {e}")
-
+        db.update_row_in_sheet("Users", "Email", email_id, updated_dict)
 
 USERS = load_user_credentials()
 
@@ -313,53 +291,34 @@ if not st.session_state.authenticated:
 
 def log_activity(action, asset_code, details):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_log = [now, st.session_state.logged_user, action, asset_code, details]
-    log_df = (
-        pd.read_excel(LOG_FILE)
-        if os.path.exists(LOG_FILE)
-        else pd.DataFrame(columns=LOG_COLUMNS)
-    )
-    log_df = pd.concat(
-        [log_df, pd.DataFrame([new_log], columns=LOG_COLUMNS)], ignore_index=True
-    )
-    try:
-        log_df.to_excel(LOG_FILE, index=False)
-    except Exception:
-        pass
-
+    log_data = {
+        "Timestamp": now,
+        "User Email": st.session_state.logged_user,
+        "Action": action,
+        "Asset Code": asset_code,
+        "Details": details
+    }
+    db.append_row_to_sheet("Activity_Logs", log_data)
 
 def load_logs():
-    return (
-        pd.read_excel(LOG_FILE)
-        if os.path.exists(LOG_FILE)
-        else pd.DataFrame(columns=LOG_COLUMNS)
-    )
-
+    logs_df = db.load_data_from_sheet("Activity_Logs")
+    if logs_df.empty:
+        return pd.DataFrame(columns=LOG_COLUMNS)
+    return logs_df
 
 def load_database_file():
-    if os.path.exists(EXCEL_FILE):
-        try:
-            data = pd.read_excel(EXCEL_FILE).fillna("-")
-            for col in COLUMNS_LIST:
-                if col not in data.columns:
-                    data[col] = "-"
-            for col in data.columns:
-                data[col] = data[col].astype(str).str.strip()
-            return data[COLUMNS_LIST]
-        except Exception:
-            return pd.DataFrame(columns=COLUMNS_LIST)
+    data = db.load_data_from_sheet("Assets")
+    if not data.empty:
+        data = data.fillna("-")
+        for col in COLUMNS_LIST:
+            if col not in data.columns:
+                data[col] = "-"
+        for col in data.columns:
+            data[col] = data[col].astype(str).str.strip()
+        return data[COLUMNS_LIST]
     return pd.DataFrame(columns=COLUMNS_LIST)
 
-
-def commit_database_file(dataframe):
-    try:
-        dataframe.to_excel(EXCEL_FILE, index=False)
-    except Exception as e:
-        st.error(f"Error saving database: {e}")
-
-
 df = load_database_file()
-
 
 def generate_product_prefix(category_str):
     clean = str(category_str).strip().upper()
@@ -380,9 +339,7 @@ def generate_product_prefix(category_str):
         return clean_alpha.ljust(3, "X")
     vowels = ["A", "E", "I", "O", "U"]
     no_vowels = [char for char in clean_alpha if char not in vowels]
-    return (
-        "".join(no_vowels[:3]) if len(no_vowels) >= 3 else clean_alpha[:3]
-    )
+    return "".join(no_vowels[:3]) if len(no_vowels) >= 3 else clean_alpha[:3]
 
 
 if "current_dashboard_view" not in st.session_state:
@@ -439,13 +396,11 @@ def render_comprehensive_ledger(dataframe):
         st.info("No matching items found.")
         return
     html = "<div style='overflow-x:auto; border:1px solid #334155; border-radius:10px;'><table class='erp-data-table'><thead><tr>"
-    html += (
-        "".join(f"<th>{col}</th>" for col in COLUMNS_LIST) + "</tr></thead><tbody>"
-    )
+    html += "".join(f"<th>{col}</th>" for col in COLUMNS_LIST) + "</tr></thead><tbody>"
     for _, row in dataframe.iterrows():
         html += "<tr>"
         for col in COLUMNS_LIST:
-            val = row[col]
+            val = row.get(col, "-")
             if col == "Status":
                 if str(val).lower() in ["available", "working"]:
                     html += f"<td><span class='status-pill pill-available'>{val}</span></td>"
@@ -468,12 +423,10 @@ def render_comprehensive_ledger(dataframe):
 if menu_selection == "📊 Dashboard":
     if st.session_state.current_dashboard_view == "Main_Grid":
         t_count = len(df)
-        a_count = len(
-            df[df["Status"].str.lower().isin(["available", "working"])]
-        )
-        i_count = len(df[df["Status"].str.lower().isin(["issued", "in use"])])
-        r_count = len(df[df["Status"].str.lower().str.contains("repair")])
-        s_count = len(df[df["Status"].str.lower().isin(["scrap", "damaged"])])
+        a_count = len(df[df["Status"].str.lower().isin(["available", "working"])]) if not df.empty else 0
+        i_count = len(df[df["Status"].str.lower().isin(["issued", "in use"])]) if not df.empty else 0
+        r_count = len(df[df["Status"].str.lower().str.contains("repair")]) if not df.empty else 0
+        s_count = len(df[df["Status"].str.lower().isin(["scrap", "damaged"])]) if not df.empty else 0
 
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1:
@@ -517,38 +470,18 @@ if menu_selection == "📊 Dashboard":
                 st.session_state.current_dashboard_view = "Scrap_View"
                 st.rerun()
 
-        # CATEGORY WISE SUMMARY GRID PANEL
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
-        st.markdown(
-            "<div class='card-heading'>📂 Category-Wise Inventory Status</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='card-heading'>📂 Category-Wise Inventory Status</div>", unsafe_allow_html=True)
 
         if not df.empty and "Category" in df.columns:
             cat_groups = (
                 df.groupby("Category")
                 .agg(
                     Total=("Asset Code", "count"),
-                    Available=(
-                        "Status",
-                        lambda x: x.str.lower()
-                        .isin(["available", "working"])
-                        .sum(),
-                    ),
-                    Issued=(
-                        "Status",
-                        lambda x: x.str.lower().isin(["issued", "in use"]).sum(),
-                    ),
-                    In_Repair=(
-                        "Status",
-                        lambda x: x.str.lower().str.contains("repair").sum(),
-                    ),
-                    Scrap=(
-                        "Status",
-                        lambda x: x.str.lower().isin(["scrap", "damaged"]).sum(),
-                    ),
+                    Available=("Status", lambda x: x.str.lower().isin(["available", "working"]).sum()),
+                    Issued=("Status", lambda x: x.str.lower().isin(["issued", "in use"]).sum()),
+                    In_Repair=("Status", lambda x: x.str.lower().str.contains("repair").sum()),
+                    Scrap=("Status", lambda x: x.str.lower().isin(["scrap", "damaged"]).sum()),
                 )
                 .reset_index()
             )
@@ -571,44 +504,19 @@ if menu_selection == "📊 Dashboard":
             st.info("No categories to display.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
-        st.markdown(
-            "<div class='card-heading'>📊 Quick Breakdown Filters</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='card-heading'>📊 Quick Breakdown Filters</div>", unsafe_allow_html=True)
         b1, b2, b3 = st.columns(3)
-        cat_options = (
-            sorted(df["Category"].unique().tolist())
-            if "Category" in df.columns
-            else []
-        )
-        loc_options = (
-            sorted(df["Current Location"].unique().tolist())
-            if "Current Location" in df.columns
-            else []
-        )
-        assign_options = (
-            sorted(df["Assigned To"].unique().tolist())
-            if "Assigned To" in df.columns
-            else []
-        )
+        cat_options = sorted(df["Category"].unique().tolist()) if not df.empty and "Category" in df.columns else []
+        loc_options = sorted(df["Current Location"].unique().tolist()) if not df.empty and "Current Location" in df.columns else []
+        assign_options = sorted(df["Assigned To"].unique().tolist()) if not df.empty and "Assigned To" in df.columns else []
 
-        selected_cat = b1.selectbox(
-            "Filter by Category:", ["All Categories"] + cat_options
-        )
-        selected_loc = b2.selectbox(
-            "Filter by Location:", ["All Locations"] + loc_options
-        )
-        selected_assign = b3.selectbox(
-            "Filter by Assigned To:", ["All Personnel"] + assign_options
-        )
+        selected_cat = b1.selectbox("Filter by Category:", ["All Categories"] + cat_options)
+        selected_loc = b2.selectbox("Filter by Location:", ["All Locations"] + loc_options)
+        selected_assign = b3.selectbox("Filter by Assigned To:", ["All Personnel"] + assign_options)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<div class='workspace-clean-card'>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
         fc1, fc2, fc3 = st.columns([1.5, 2, 1])
         grid_filter = fc1.selectbox(
             "Select Status Filter:",
@@ -626,36 +534,22 @@ if menu_selection == "📊 Dashboard":
         )
 
         df_view = df.copy()
-        if "Available" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["available", "working"])
-            ]
-        elif "Issued" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["issued", "in use"])
-            ]
-        elif "Repair" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().str.contains("repair")
-            ]
-        elif "Scrap" in grid_filter:
-            df_view = df_view[
-                df_view["Status"].str.lower().isin(["scrap", "damaged"])
-            ]
+        if "Available" in grid_filter and not df_view.empty:
+            df_view = df_view[df_view["Status"].str.lower().isin(["available", "working"])]
+        elif "Issued" in grid_filter and not df_view.empty:
+            df_view = df_view[df_view["Status"].str.lower().isin(["issued", "in use"])]
+        elif "Repair" in grid_filter and not df_view.empty:
+            df_view = df_view[df_view["Status"].str.lower().str.contains("repair")]
+        elif "Scrap" in grid_filter and not df_view.empty:
+            df_view = df_view[df_view["Status"].str.lower().isin(["scrap", "damaged"])]
 
         if selected_cat != "All Categories" and "Category" in df_view.columns:
             df_view = df_view[df_view["Category"] == selected_cat]
-        if (
-            selected_loc != "All Locations"
-            and "Current Location" in df_view.columns
-        ):
+        if selected_loc != "All Locations" and "Current Location" in df_view.columns:
             df_view = df_view[df_view["Current Location"] == selected_loc]
-        if (
-            selected_assign != "All Personnel"
-            and "Assigned To" in df_view.columns
-        ):
+        if selected_assign != "All Personnel" and "Assigned To" in df_view.columns:
             df_view = df_view[df_view["Assigned To"] == selected_assign]
-        if live_query:
+        if live_query and not df_view.empty:
             df_view = df_view[
                 df_view.astype(str)
                 .apply(lambda x: x.str.contains(live_query, case=False))
@@ -665,9 +559,7 @@ if menu_selection == "📊 Dashboard":
         io_stream = BytesIO()
         with pd.ExcelWriter(io_stream, engine="openpyxl") as ew:
             df_view.to_excel(ew, index=False)
-        fc3.markdown(
-            "<div style='margin-top:28px;'></div>", unsafe_allow_html=True
-        )
+        fc3.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         fc3.download_button(
             "📥 Export Current View",
             data=io_stream.getvalue(),
@@ -691,43 +583,29 @@ if menu_selection == "📊 Dashboard":
         if st.button("⬅️ Back Dashboard"):
             st.session_state.current_dashboard_view = "Main_Grid"
             st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["available", "working"])]
-        )
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["available", "working"])] if not df.empty else df)
     elif st.session_state.current_dashboard_view == "Issued_View":
         if st.button("⬅️ Back Dashboard"):
             st.session_state.current_dashboard_view = "Main_Grid"
             st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["issued", "in use"])]
-        )
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["issued", "in use"])] if not df.empty else df)
     elif st.session_state.current_dashboard_view == "Repair_View":
         if st.button("⬅️ Back Dashboard"):
             st.session_state.current_dashboard_view = "Main_Grid"
             st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().str.contains("repair")]
-        )
+        render_comprehensive_ledger(df[df["Status"].str.lower().str.contains("repair")] if not df.empty else df)
     elif st.session_state.current_dashboard_view == "Scrap_View":
         if st.button("⬅️ Back Dashboard"):
             st.session_state.current_dashboard_view = "Main_Grid"
             st.rerun()
-        render_comprehensive_ledger(
-            df[df["Status"].str.lower().isin(["scrap", "damaged"])]
-        )
+        render_comprehensive_ledger(df[df["Status"].str.lower().isin(["scrap", "damaged"])] if not df.empty else df)
 
 # ==================== MODULE 2: DATA ENTRY ====================
 elif menu_selection == "➕ Add New Asset":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Add New Item Form (Asset Code Auto-Generates)</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Add New Item Form (Asset Code Auto-Generates)</div>", unsafe_allow_html=True)
     with st.form("master_injection_form", clear_on_submit=True):
         r1, r2, r3, r4 = st.columns(4)
-        in_cat = r1.text_input(
-            "Category / Product Type*",
-            placeholder="e.g. All-in-One, Laptop, Keyboard, Mouse",
-        )
+        in_cat = r1.text_input("Category / Product Type*", placeholder="e.g. All-in-One, Laptop, Keyboard, Mouse")
         in_name = r2.text_input("Asset / Item Name")
         in_brand = r3.text_input("Brand")
         in_model = r4.text_input("Model Number")
@@ -757,9 +635,7 @@ elif menu_selection == "➕ Add New Asset":
         in_dept = r20.text_input("Department", value="IT")
 
         r21, r22 = st.columns([2, 2])
-        in_status = r21.selectbox(
-            "Status", ["Available", "Issued", "In Repair", "Scrap"]
-        )
+        in_status = r21.selectbox("Status", ["Available", "Issued", "In Repair", "Scrap"])
         in_rem = r22.text_input("Remarks", value="-")
 
         if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
@@ -767,9 +643,7 @@ elif menu_selection == "➕ Add New Asset":
                 prefix = generate_product_prefix(in_cat)
                 full_prefix = f"LUC-{prefix}-"
 
-                matching_codes = df[df["Asset Code"].str.startswith(full_prefix)][
-                    "Asset Code"
-                ].tolist()
+                matching_codes = df[df["Asset Code"].str.startswith(full_prefix)]["Asset Code"].tolist() if not df.empty else []
                 max_num = 0
                 for code in matching_codes:
                     try:
@@ -782,68 +656,52 @@ elif menu_selection == "➕ Add New Asset":
                 next_num = max_num + 1
                 generated_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
 
-                if generated_asset_code in df["Asset Code"].values:
-                    generated_asset_code = (
-                        f"{full_prefix}{str(next_num + 1).zfill(3)}"
+                new_row_dict = {
+                    "Asset Code": generated_asset_code,
+                    "Asset Name": in_name.strip(),
+                    "Category": in_cat.strip(),
+                    "Brand": in_brand.strip(),
+                    "Model": in_model.strip(),
+                    "Serial Number": in_serial.strip(),
+                    "Processor": in_proc.strip(),
+                    "RAM": in_ram.strip(),
+                    "Storage": in_storage.strip(),
+                    "Operating System": in_os.strip(),
+                    "MAC Address": in_mac.strip(),
+                    "IP Address": in_ip.strip(),
+                    "Purchase Date": in_pdate.strip(),
+                    "Invoice Number": in_inv.strip(),
+                    "Vendor": in_vendor.strip(),
+                    "Purchase Cost": in_cost.strip(),
+                    "Warranty Start": in_wstart.strip(),
+                    "Warranty End": in_wend.strip(),
+                    "Current Location": in_loc.strip(),
+                    "Assigned To": in_teach.strip(),
+                    "Department": in_dept.strip(),
+                    "Status": in_status,
+                    "Remarks": in_rem.strip(),
+                }
+
+                if db.append_row_to_sheet("Assets", new_row_dict):
+                    log_activity(
+                        "ADD_ASSET",
+                        generated_asset_code,
+                        f"Added {in_name.strip()} ({in_cat.strip()}) under Location: {in_loc.strip()}",
                     )
-
-                new_row = [
-                    generated_asset_code,
-                    in_name.strip(),
-                    in_cat.strip(),
-                    in_brand.strip(),
-                    in_model.strip(),
-                    in_serial.strip(),
-                    in_proc.strip(),
-                    in_ram.strip(),
-                    in_storage.strip(),
-                    in_os.strip(),
-                    in_mac.strip(),
-                    in_ip.strip(),
-                    in_pdate.strip(),
-                    in_inv.strip(),
-                    in_vendor.strip(),
-                    in_cost.strip(),
-                    in_wstart.strip(),
-                    in_wend.strip(),
-                    in_loc.strip(),
-                    in_teach.strip(),
-                    in_dept.strip(),
-                    in_status,
-                    in_rem.strip(),
-                ]
-
-                df = pd.concat(
-                    [df, pd.DataFrame([new_row], columns=COLUMNS_LIST)],
-                    ignore_index=True,
-                )
-                commit_database_file(df)
-
-                log_activity(
-                    "ADD_ASSET",
-                    generated_asset_code,
-                    f"Added {in_name.strip()} ({in_cat.strip()}) under Location: {in_loc.strip()}",
-                )
-
-                st.success(
-                    f"Successfully Added! Generated Code: **{generated_asset_code}**"
-                )
-                st.rerun()
+                    st.success(f"Successfully Added! Generated Code: **{generated_asset_code}**")
+                    st.rerun()
+                else:
+                    st.error("Failed to save to Google Sheets.")
             else:
                 st.error("Please fill the 'Category / Product Type' field.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 3: EDIT / UPDATE ASSET ====================
 elif menu_selection == "✏️ Edit / Update Asset":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Modify Existing Asset Details</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Modify Existing Asset Details</div>", unsafe_allow_html=True)
 
-    asset_list = sorted(df["Asset Code"].tolist())
-    selected_edit_code = st.selectbox(
-        "Select Asset Code to Edit:", ["-- Select Code --"] + asset_list
-    )
+    asset_list = sorted(df["Asset Code"].tolist()) if not df.empty else []
+    selected_edit_code = st.selectbox("Select Asset Code to Edit:", ["-- Select Code --"] + asset_list)
 
     if selected_edit_code != "-- Select Code --":
         row_data = df[df["Asset Code"] == selected_edit_code].iloc[0]
@@ -851,248 +709,160 @@ elif menu_selection == "✏️ Edit / Update Asset":
         with st.form("master_edit_form"):
             st.warning(f"You are modifying item record: {selected_edit_code}")
             er1, er2, er3, er4 = st.columns(4)
-            edit_cat = er1.text_input(
-                "Category / Product Type*", value=row_data["Category"]
-            )
-            edit_name = er2.text_input(
-                "Asset / Item Name", value=row_data["Asset Name"]
-            )
-            edit_brand = er3.text_input("Brand", value=row_data["Brand"])
-            edit_model = er4.text_input("Model Number", value=row_data["Model"])
+            edit_cat = er1.text_input("Category / Product Type*", value=row_data.get("Category", ""))
+            edit_name = er2.text_input("Asset / Item Name", value=row_data.get("Asset Name", ""))
+            edit_brand = er3.text_input("Brand", value=row_data.get("Brand", ""))
+            edit_model = er4.text_input("Model Number", value=row_data.get("Model", ""))
 
             er5, er6, er7, er8 = st.columns(4)
-            edit_serial = er5.text_input(
-                "Serial Number (S/N)", value=row_data["Serial Number"]
-            )
-            edit_proc = er6.text_input("Processor", value=row_data["Processor"])
-            edit_ram = er7.text_input("RAM", value=row_data["RAM"])
-            edit_storage = er8.text_input(
-                "Storage", value=row_data["Storage"]
-            )
+            edit_serial = er5.text_input("Serial Number (S/N)", value=row_data.get("Serial Number", ""))
+            edit_proc = er6.text_input("Processor", value=row_data.get("Processor", "-"))
+            edit_ram = er7.text_input("RAM", value=row_data.get("RAM", "-"))
+            edit_storage = er8.text_input("Storage", value=row_data.get("Storage", "-"))
 
             er9, er10, er11, er12 = st.columns(4)
-            edit_os = er9.text_input(
-                "Operating System", value=row_data["Operating System"]
-            )
-            edit_mac = er10.text_input(
-                "MAC Address", value=row_data["MAC Address"]
-            )
-            edit_ip = er11.text_input("IP Address", value=row_data["IP Address"])
-            edit_pdate = er12.text_input(
-                "Purchase Date", value=row_data["Purchase Date"]
-            )
+            edit_os = er9.text_input("Operating System", value=row_data.get("Operating System", "-"))
+            edit_mac = er10.text_input("MAC Address", value=row_data.get("MAC Address", "-"))
+            edit_ip = er11.text_input("IP Address", value=row_data.get("IP Address", "-"))
+            edit_pdate = er12.text_input("Purchase Date", value=row_data.get("Purchase Date", "-"))
 
             er13, er14, er15, er16 = st.columns(4)
-            edit_inv = er13.text_input(
-                "Invoice Number", value=row_data["Invoice Number"]
-            )
-            edit_vendor = er14.text_input("Vendor", value=row_data["Vendor"])
-            edit_cost = er15.text_input(
-                "Purchase Cost", value=row_data["Purchase Cost"]
-            )
-            edit_wstart = er16.text_input(
-                "Warranty Start", value=row_data["Warranty Start"]
-            )
+            edit_inv = er13.text_input("Invoice Number", value=row_data.get("Invoice Number", "-"))
+            edit_vendor = er14.text_input("Vendor", value=row_data.get("Vendor", "-"))
+            edit_cost = er15.text_input("Purchase Cost", value=row_data.get("Purchase Cost", "-"))
+            edit_wstart = er16.text_input("Warranty Start", value=row_data.get("Warranty Start", "-"))
 
             er17, er18, er19, er20 = st.columns(4)
-            edit_wend = er17.text_input(
-                "Warranty End", value=row_data["Warranty End"]
-            )
-            edit_loc = er18.text_input(
-                "Current Location", value=row_data["Current Location"]
-            )
-            edit_teach = er19.text_input(
-                "Assigned To", value=row_data["Assigned To"]
-            )
-            edit_dept = er20.text_input(
-                "Department", value=row_data["Department"]
-            )
+            edit_wend = er17.text_input("Warranty End", value=row_data.get("Warranty End", "-"))
+            edit_loc = er18.text_input("Current Location", value=row_data.get("Current Location", "MAIN STORE"))
+            edit_teach = er19.text_input("Assigned To", value=row_data.get("Assigned To", "-"))
+            edit_dept = er20.text_input("Department", value=row_data.get("Department", "IT"))
 
             er21, er22 = st.columns([2, 2])
             status_index = ["Available", "Issued", "In Repair", "Scrap"]
-            current_status = (
-                row_data["Status"]
-                if row_data["Status"] in status_index
-                else "Available"
-            )
-            edit_status = er21.selectbox(
-                "Status",
-                status_index,
-                index=status_index.index(current_status),
-            )
-            edit_rem = er22.text_input("Remarks", value=row_data["Remarks"])
+            current_status = row_data.get("Status", "Available")
+            if current_status not in status_index:
+                current_status = "Available"
+            edit_status = er21.selectbox("Status", status_index, index=status_index.index(current_status))
+            edit_rem = er22.text_input("Remarks", value=row_data.get("Remarks", "-"))
 
             if st.form_submit_button("💾 UPDATE CHANGES"):
                 if edit_cat.strip():
-                    df.loc[df["Asset Code"] == selected_edit_code, COLUMNS_LIST] = (
-                        [
+                    updated_dict = {
+                        "Asset Code": selected_edit_code,
+                        "Asset Name": edit_name.strip(),
+                        "Category": edit_cat.strip(),
+                        "Brand": edit_brand.strip(),
+                        "Model": edit_model.strip(),
+                        "Serial Number": edit_serial.strip(),
+                        "Processor": edit_proc.strip(),
+                        "RAM": edit_ram.strip(),
+                        "Storage": edit_storage.strip(),
+                        "Operating System": edit_os.strip(),
+                        "MAC Address": edit_mac.strip(),
+                        "IP Address": edit_ip.strip(),
+                        "Purchase Date": edit_pdate.strip(),
+                        "Invoice Number": edit_inv.strip(),
+                        "Vendor": edit_vendor.strip(),
+                        "Purchase Cost": edit_cost.strip(),
+                        "Warranty Start": edit_wstart.strip(),
+                        "Warranty End": edit_wend.strip(),
+                        "Current Location": edit_loc.strip(),
+                        "Assigned To": edit_teach.strip(),
+                        "Department": edit_dept.strip(),
+                        "Status": edit_status,
+                        "Remarks": edit_rem.strip(),
+                    }
+                    if db.update_row_in_sheet("Assets", "Asset Code", selected_edit_code, updated_dict):
+                        log_activity(
+                            "EDIT_ASSET",
                             selected_edit_code,
-                            edit_name.strip(),
-                            edit_cat.strip(),
-                            edit_brand.strip(),
-                            edit_model.strip(),
-                            edit_serial.strip(),
-                            edit_proc.strip(),
-                            edit_ram.strip(),
-                            edit_storage.strip(),
-                            edit_os.strip(),
-                            edit_mac.strip(),
-                            edit_ip.strip(),
-                            edit_pdate.strip(),
-                            edit_inv.strip(),
-                            edit_vendor.strip(),
-                            edit_cost.strip(),
-                            edit_wstart.strip(),
-                            edit_wend.strip(),
-                            edit_loc.strip(),
-                            edit_teach.strip(),
-                            edit_dept.strip(),
-                            edit_status,
-                            edit_rem.strip(),
-                        ]
-                    )
-                    commit_database_file(df)
-
-                    log_activity(
-                        "EDIT_ASSET",
-                        selected_edit_code,
-                        f"Updated Name: {edit_name.strip()}, Location: {edit_loc.strip()}, Status: {edit_status}",
-                    )
-
-                    st.success(
-                        f"Asset Record **{selected_edit_code}** updated successfully!"
-                    )
-                    st.rerun()
+                            f"Updated Name: {edit_name.strip()}, Location: {edit_loc.strip()}, Status: {edit_status}",
+                        )
+                        st.success(f"Asset Record **{selected_edit_code}** updated successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update record in Google Sheets.")
                 else:
                     st.error("Category cannot be empty.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 4: ALLOCATION ====================
 elif menu_selection == "📑 Issue / Allocate Item":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Issue Item Form</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Issue Item Form</div>", unsafe_allow_html=True)
     with st.form("issue_form"):
-        available_assets = df[
-            df["Status"].str.lower().isin(["available", "working"])
-        ]["Asset Code"].tolist()
+        available_assets = df[df["Status"].str.lower().isin(["available", "working"])]["Asset Code"].tolist() if not df.empty else []
         c1, c2, c3 = st.columns(3)
-        target_asset = c1.selectbox(
-            "Select Asset Tag:",
-            available_assets if available_assets else ["No Stock Available"],
-        )
+        target_asset = c1.selectbox("Select Asset Tag:", available_assets if available_assets else ["No Stock Available"])
         assign_user = c2.text_input("Assigned To (Staff Name)*")
         target_loc = c3.text_input("Current Location (Room/Lab)*")
         c4, c5 = st.columns(2)
         target_dept = c4.text_input("Department", value="IT")
-        issue_remarks = c5.text_input(
-            "Remarks / Notes", value="Issued for official college use"
-        )
+        issue_remarks = c5.text_input("Remarks / Notes", value="Issued for official college use")
 
         if st.form_submit_button("⚡ ASSIGN / ISSUE NOW") and available_assets:
             if assign_user.strip() and target_loc.strip():
-                df.loc[
-                    df["Asset Code"] == target_asset,
-                    [
-                        "Assigned To",
-                        "Current Location",
-                        "Department",
-                        "Status",
-                        "Remarks",
-                    ],
-                ] = [
-                    assign_user.strip(),
-                    target_loc.strip(),
-                    target_dept.strip(),
-                    "Issued",
-                    issue_remarks.strip(),
-                ]
-                commit_database_file(df)
+                row_data = df[df["Asset Code"] == target_asset].iloc[0].to_dict()
+                row_data["Assigned To"] = assign_user.strip()
+                row_data["Current Location"] = target_loc.strip()
+                row_data["Department"] = target_dept.strip()
+                row_data["Status"] = "Issued"
+                row_data["Remarks"] = issue_remarks.strip()
 
-                log_activity(
-                    "ISSUE_ASSET",
-                    target_asset,
-                    f"Assigned To: {assign_user.strip()}, Location: {target_loc.strip()}",
-                )
+                if db.update_row_in_sheet("Assets", "Asset Code", target_asset, row_data):
+                    log_activity(
+                        "ISSUE_ASSET",
+                        target_asset,
+                        f"Assigned To: {assign_user.strip()}, Location: {target_loc.strip()}",
+                    )
+                    st.success("Allocation updated successfully.")
+                    st.rerun()
 
-                st.success("Allocation updated.")
-                st.rerun()
-
-    st.markdown(
-        "<br><div class='card-heading'>Currently Issued Items Matrix</div>",
-        unsafe_allow_html=True,
-    )
-    render_comprehensive_ledger(
-        df[df["Status"].str.lower().isin(["issued", "in use"])]
-    )
+    st.markdown("<br><div class='card-heading'>Currently Issued Items Matrix</div>", unsafe_allow_html=True)
+    render_comprehensive_ledger(df[df["Status"].str.lower().isin(["issued", "in use"])] if not df.empty else df)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 5: REPAIR ====================
 elif menu_selection == "🛠️ Repair & Maintenance":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Maintenance Loop Control</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Maintenance Loop Control</div>", unsafe_allow_html=True)
     with st.form("repair_form"):
-        all_assets = df["Asset Code"].tolist()
+        all_assets = df["Asset Code"].tolist() if not df.empty else []
         rc1, rc2, rc3 = st.columns(3)
-        maint_asset = rc1.selectbox(
-            "Select Asset Tag:", all_assets if all_assets else ["-"]
-        )
+        maint_asset = rc1.selectbox("Select Asset Tag:", all_assets if all_assets else ["-"])
         maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
-        maint_remarks = rc3.text_input(
-            "Fault / Repair Logs:", value="Servicing requested"
-        )
+        maint_remarks = rc3.text_input("Fault / Repair Logs:", value="Servicing requested")
 
-        if (
-            st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS")
-            and all_assets
-        ):
-            df.loc[
-                df["Asset Code"] == maint_asset, ["Status", "Remarks"]
-            ] = [maint_status, maint_remarks.strip()]
+        if st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS") and all_assets:
+            row_data = df[df["Asset Code"] == maint_asset].iloc[0].to_dict()
+            row_data["Status"] = maint_status
+            row_data["Remarks"] = maint_remarks.strip()
             if maint_status == "Available":
-                df.loc[
-                    df["Asset Code"] == maint_asset,
-                    ["Assigned To", "Current Location"],
-                ] = ["-", "MAIN STORE"]
-            commit_database_file(df)
+                row_data["Assigned To"] = "-"
+                row_data["Current Location"] = "MAIN STORE"
 
-            log_activity(
-                "MAINTENANCE_CHANGE",
-                maint_asset,
-                f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}",
-            )
+            if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
+                log_activity(
+                    "MAINTENANCE_CHANGE",
+                    maint_asset,
+                    f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}",
+                )
+                st.success("Maintenance log updated.")
+                st.rerun()
 
-            st.success("Maintenance log updated.")
-            st.rerun()
-
-    st.markdown(
-        "<br><div class='card-heading'>Active Items Under Repair</div>",
-        unsafe_allow_html=True,
-    )
-    render_comprehensive_ledger(
-        df[df["Status"].str.lower().str.contains("repair")]
-    )
+    st.markdown("<br><div class='card-heading'>Active Items Under Repair</div>", unsafe_allow_html=True)
+    render_comprehensive_ledger(df[df["Status"].str.lower().str.contains("repair")] if not df.empty else df)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 6: WARRANTY ====================
 elif menu_selection == "⏱️ Warranty Records":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>Warranty & AMC Status Ledger</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='workspace-clean-card'><div class='card-heading'>Warranty & AMC Status Ledger</div>", unsafe_allow_html=True)
     render_comprehensive_ledger(df)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 7: AUDIT LOGS (ADMIN ONLY) ====================
 elif menu_selection == "📜 Activity Logs (Audit)":
     if st.session_state.user_role == "Admin":
-        st.markdown(
-            "<div class='workspace-clean-card'><div class='card-heading'>User Activity & Audit Ledger</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div class='workspace-clean-card'><div class='card-heading'>User Activity & Audit Ledger</div>", unsafe_allow_html=True)
 
         logs_df = load_logs()
         if not logs_df.empty:
@@ -1117,36 +887,27 @@ elif menu_selection == "📜 Activity Logs (Audit)":
 # ==================== MODULE 8: RESET PASSWORDS (ADMIN ONLY) ====================
 elif menu_selection == "🔑 Reset User Passwords":
     if st.session_state.user_role == "Admin":
-        st.markdown(
-            "<div class='workspace-clean-card'><div class='card-heading'>User Password Management</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div class='workspace-clean-card'><div class='card-heading'>User Password Management</div>", unsafe_allow_html=True)
 
         user_list = list(USERS.keys())
 
         with st.form("reset_pwd_form"):
-            selected_user = st.selectbox(
-                "Select User Account to Reset:", user_list
-            )
+            selected_user = st.selectbox("Select User Account to Reset:", user_list)
             new_pwd = st.text_input("New Password", type="password")
             confirm_pwd = st.text_input("Confirm New Password", type="password")
 
             if st.form_submit_button("🔄 UPDATE PASSWORD NOW"):
                 if new_pwd and new_pwd == confirm_pwd:
                     USERS[selected_user]["pass"] = new_pwd
-                    save_user_credentials(USERS)
+                    save_user_credentials(selected_user, new_pwd)
                     log_activity(
                         "PASSWORD_RESET",
                         "-",
                         f"Admin reset password for user: {selected_user}",
                     )
-                    st.success(
-                        f"Password for **{selected_user}** has been successfully updated!"
-                    )
+                    st.success(f"Password for **{selected_user}** has been successfully updated!")
                 elif new_pwd != confirm_pwd:
                     st.error("Passwords do not match!")
                 else:
                     st.error("Please enter a valid password.")
         st.markdown("</div>", unsafe_allow_html=True)
-
-
