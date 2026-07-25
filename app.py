@@ -40,7 +40,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- GLOBAL STYLING + AGGRESSIVE HIDER FOR MANAGE APP TOOLBAR ---
+# --- GLOBAL STYLING ---
 st.markdown(
     """
     <style>
@@ -229,16 +229,7 @@ def load_user_credentials():
                 "name": str(r["Name"]).strip(),
             }
         return users_dict
-    else:
-        # Initial populate Users Tab in Google Sheet
-        for k, v in DEFAULT_USERS.items():
-            db.append_row_to_sheet("Users", {
-                "Email": k,
-                "Password": v["pass"],
-                "Role": v["role"],
-                "Name": v["name"]
-            })
-        return DEFAULT_USERS
+    return DEFAULT_USERS
 
 def save_user_credentials(email_id, new_pass):
     user_data = USERS.get(email_id)
