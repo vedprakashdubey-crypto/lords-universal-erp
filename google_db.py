@@ -26,8 +26,9 @@ def get_worksheet(sheet_name):
     client = get_gspread_client()
     if client:
         try:
-            spreadsheet_name = st.secrets.get("SPREADSHEET_NAME", "LUC_IT_Asset_ERP")
-            sheet = client.open(spreadsheet_name)
+            # Direct Sheet ID link se open karega (Zero Error Solution)
+            sheet_id = "1liU4QesdM_8Qtn3tW1_9QGkU1_CQr0Ga6LHwg7Bwb9g"
+            sheet = client.open_by_key(sheet_id)
             
             try:
                 return sheet.worksheet(sheet_name)
