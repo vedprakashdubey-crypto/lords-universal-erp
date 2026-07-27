@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import os
 import google_db as db
@@ -33,14 +33,22 @@ COLUMNS_LIST = [
 
 LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
 
-# PAGE CONFIG - INITIAL SIDEBAR EXPANDED
+# Page configuration - FORCE EXPANDED SIDEBAR
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-today_date_str = datetime.now().strftime("%d-%m-%Y")
+# --- INDIA / MUMBAI (KOLKATA) TIMEZONE (+5:30 IST) ---
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+
+def get_ist_now():
+  return datetime.now(IST_TZ)
+
+
+today_date_str = get_ist_now().strftime("%d-%m-%Y")
 
 # --- CLEAN CSS FIX FOR SIDEBAR ARROW ---
 st.markdown(
@@ -313,9 +321,10 @@ if not st.session_state.authenticated:
 
 def log_activity(action, asset_code, details):
   try:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # EXACT INDIAN STANDARD TIME (+5:30 IST)
+    now_ist = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
     log_data = {
-        "Timestamp": now,
+        "Timestamp": now_ist,
         "User Email": st.session_state.logged_user,
         "Action": action,
         "Asset Code": asset_code,
@@ -878,8 +887,8 @@ elif menu_selection == "➕ Add New Asset":
             log_activity(
                 "ADD_ASSET",
                 generated_asset_code,
-                f"Item Created on {today_date_str}: {in_name.strip()}"
-                f" ({in_cat.strip()})",
+                f"Added {in_name.strip()} ({in_cat.strip()}) under Location:"
+                f" {in_loc.strip()}",
             )
             st.cache_data.clear()
             st.success(
@@ -1023,8 +1032,8 @@ elif menu_selection == "✏️ Edit / Update Asset":
             log_activity(
                 "EDIT_ASSET",
                 selected_edit_code,
-                f"Updated Details on {today_date_str}: Name: {edit_name.strip()},"
-                f" Location: {edit_loc.strip()}",
+                f"Updated Name: {edit_name.strip()}, Location:"
+                f" {edit_loc.strip()}, Status: {edit_status}",
             )
             st.cache_data.clear()
             st.success(
@@ -1169,7 +1178,7 @@ elif menu_selection == "📜 Activity Logs (Audit)":
   if st.session_state.user_role == "Admin":
     st.markdown(
         "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Activity & Movement Audit Ledger</div>",
+        " Activity & Movement Audit Ledger (Indian Standard Time - IST)</div>",
         unsafe_allow_html=True,
     )
 
