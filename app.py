@@ -56,7 +56,6 @@ st.markdown(
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* HIDE UNWANTED FOOTERS ONLY */
         #MainMenu, footer, [data-testid="stStatusWidget"],
         [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
         div[class*="viewerBadge"], div[class*="manageApp"] {
@@ -65,7 +64,6 @@ st.markdown(
             opacity: 0 !important;
         }
 
-        /* REMOVE WHITE OVERLAY & MAKE TOGGLE ARROW VISIBLE BRIGHT BLUE */
         header[data-testid="stHeader"] {
             background-color: transparent !important;
         }
@@ -95,7 +93,6 @@ st.markdown(
             padding: 1.5rem 2rem !important;
         }
         
-        /* SIDEBAR ALWAYS EXPANDED STYLING */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
@@ -324,7 +321,6 @@ def log_activity(action, asset_code, details):
   try:
     now_ist = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Fetch active user name & email for log table
     current_user_email = st.session_state.get("logged_user", "Admin")
     current_user_name = st.session_state.get("user_name", "Vedprakash Dubey")
     user_str = f"{current_user_name} ({current_user_email})"
@@ -347,7 +343,6 @@ def load_logs():
     if logs_df.empty:
       return pd.DataFrame(columns=LOG_COLUMNS)
 
-    # Clean & normalize User Column if legacy User Email exists
     if "User Email" in logs_df.columns and "User" not in logs_df.columns:
       logs_df = logs_df.rename(columns={"User Email": "User"})
 
@@ -392,6 +387,10 @@ def generate_product_prefix(category_str):
     return "KEY"
   if "MOUSE" in clean:
     return "MSE"
+  if "ROUTER" in clean or "RTR" in clean:
+    return "RTR"
+  if "DVR" in clean or "NVR" in clean:
+    return "DVR"
   clean_alpha = "".join(e for e in clean if e.isalnum())
   if not clean_alpha:
     return "AST"
@@ -917,11 +916,11 @@ elif menu_selection == "➕ Add New Asset":
         st.error("Please fill the 'Category / Product Type' field.")
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 3: EDIT / UPDATE ASSET ====================
+# ==================== MODULE 3: EDIT / UPDATE ASSET (WITH CODE MODIFY FEATURE) ====================
 elif menu_selection == "✏️ Edit / Update Asset":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Modify"
-      " Existing Asset Details</div>",
+      " Existing Asset Details & Code</div>",
       unsafe_allow_html=True,
   )
 
@@ -935,6 +934,16 @@ elif menu_selection == "✏️ Edit / Update Asset":
 
     with st.form("master_edit_form"):
       st.warning(f"You are modifying item record: {selected_edit_code}")
+
+      # EDITABLE ASSET CODE & AUTO-CODE GENERATOR OPTION
+      c_code, c_autotick = st.columns([2, 2])
+      edit_asset_code = c_code.text_input(
+          "Asset Code (Can be modified manually)*", value=selected_edit_code
+      )
+      auto_recode = c_autotick.checkbox(
+          "⚡ Auto-Update Asset Code according to Category?"
+      )
+
       er1, er2, er3, er4 = st.columns(4)
       edit_cat = er1.text_input(
           "Category / Product Type*", value=row_data.get("Category", "")
@@ -1016,8 +1025,34 @@ elif menu_selection == "✏️ Edit / Update Asset":
 
       if st.form_submit_button("💾 UPDATE CHANGES"):
         if edit_cat.strip():
+          final_asset_code = edit_asset_code.strip()
+
+          # Auto-regenerate Code if Category changed & Checkbox is Ticked
+          if auto_recode:
+            prefix = generate_product_prefix(edit_cat)
+            full_prefix = f"LUC-{prefix}-"
+
+            matching_codes = (
+                df[df["Asset Code"].str.startswith(full_prefix)][
+                    "Asset Code"
+                ].tolist()
+                if not df.empty
+                else []
+            )
+            max_num = 0
+            for code in matching_codes:
+              try:
+                num_part = int(code.split("-")[-1])
+                if num_part > max_num:
+                  max_num = num_part
+              except ValueError:
+                continue
+
+            next_num = max_num + 1
+            final_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
+
           updated_dict = {
-              "Asset Code": selected_edit_code,
+              "Asset Code": final_asset_code,
               "Asset Name": edit_name.strip(),
               "Category": edit_cat.strip(),
               "Brand": edit_brand.strip(),
@@ -1041,18 +1076,20 @@ elif menu_selection == "✏️ Edit / Update Asset":
               "Status": edit_status,
               "Remarks": edit_rem.strip(),
           }
+
+          # Search & Update row in Google Sheet via original Asset Code
           if db.update_row_in_sheet(
               "Assets", "Asset Code", selected_edit_code, updated_dict
           ):
             log_activity(
                 "EDIT_ASSET",
-                selected_edit_code,
-                f"Updated Details on {today_date_str}: Name: {edit_name.strip()},"
-                f" Location: {edit_loc.strip()}",
+                final_asset_code,
+                f"Updated Item Details & Code (Old: {selected_edit_code} ➡️"
+                f" New: {final_asset_code}), Category: {edit_cat.strip()}",
             )
             st.cache_data.clear()
             st.success(
-                f"Asset Record **{selected_edit_code}** updated successfully!"
+                f"Asset Record **{final_asset_code}** updated successfully!"
             )
             st.rerun()
           else:
