@@ -33,7 +33,7 @@ COLUMNS_LIST = [
 
 LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
 
-# Page configuration
+# Page configuration - FORCE EXPANDED SIDEBAR
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
     layout="wide",
@@ -42,7 +42,7 @@ st.set_page_config(
 
 today_date_str = datetime.now().strftime("%d-%m-%Y")
 
-# --- GLOBAL STYLING + FIXED SIDEBAR TOGGLE ---
+# --- CLEAN STYLING ---
 st.markdown(
     """
     <style>
@@ -56,21 +56,6 @@ st.markdown(
             opacity: 0 !important;
         }
 
-        [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapseButton"] {
-            display: flex !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            z-index: 999999 !important;
-        }
-        
-        [data-testid="stSidebarCollapsedControl"] button, [data-testid="stSidebarCollapseButton"] button {
-            background-color: #2563EB !important;
-            color: #FFFFFF !important;
-            border: 2px solid #38BDF8 !important;
-            border-radius: 8px !important;
-            padding: 6px 12px !important;
-        }
-
         html, body, [data-testid="stAppViewContainer"], .main {
             background-color: #0F172A !important;
             color: #E2E8F0 !important;
@@ -82,10 +67,11 @@ st.markdown(
             padding: 1.5rem 2rem !important;
         }
         
+        /* FORCE SIDEBAR ALWAYS VISIBLE */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
-            display: block !important;
+            min-width: 260px !important;
         }
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"], 
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
@@ -209,7 +195,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- USER CREDENTIALS MANAGEMENT ---
+# USER CREDENTIALS MANAGEMENT
 DEFAULT_USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -261,8 +247,11 @@ def save_user_credentials(email_id, new_pass):
         "Role": user_data["role"],
         "Name": user_data["name"],
     }
-    db.update_row_in_sheet("Users", "Email", email_id, updated_dict)
-    st.cache_data.clear()
+    try:
+      db.update_row_in_sheet("Users", "Email", email_id, updated_dict)
+      st.cache_data.clear()
+    except Exception as e:
+      st.error(f"Error saving user details: {e}")
 
 
 USERS = load_user_credentials()
@@ -304,36 +293,45 @@ if not st.session_state.authenticated:
 
 
 def log_activity(action, asset_code, details):
-  now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-  log_data = {
-      "Timestamp": now,
-      "User Email": st.session_state.logged_user,
-      "Action": action,
-      "Asset Code": asset_code,
-      "Details": details,
-  }
-  db.append_row_to_sheet("Activity_Logs", log_data)
+  try:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_data = {
+        "Timestamp": now,
+        "User Email": st.session_state.logged_user,
+        "Action": action,
+        "Asset Code": asset_code,
+        "Details": details,
+    }
+    db.append_row_to_sheet("Activity_Logs", log_data)
+  except Exception:
+    pass
 
 
 def load_logs():
-  logs_df = db.load_data_from_sheet("Activity_Logs")
-  if logs_df.empty:
+  try:
+    logs_df = db.load_data_from_sheet("Activity_Logs")
+    if logs_df.empty:
+      return pd.DataFrame(columns=LOG_COLUMNS)
+    return logs_df
+  except Exception:
     return pd.DataFrame(columns=LOG_COLUMNS)
-  return logs_df
 
 
-# FAST CACHED DATABASE LOADER
+# SAFE CACHED LOADER WITH ERROR CATCHING
 @st.cache_data(ttl=60)
 def load_database_file():
-  data = db.load_data_from_sheet("Assets")
-  if not data.empty:
-    data = data.fillna("-")
-    for col in COLUMNS_LIST:
-      if col not in data.columns:
-        data[col] = "-"
-    for col in data.columns:
-      data[col] = data[col].astype(str).str.strip()
-    return data[COLUMNS_LIST]
+  try:
+    data = db.load_data_from_sheet("Assets")
+    if not data.empty:
+      data = data.fillna("-")
+      for col in COLUMNS_LIST:
+        if col not in data.columns:
+          data[col] = "-"
+      for col in data.columns:
+        data[col] = data[col].astype(str).str.strip()
+      return data[COLUMNS_LIST]
+  except Exception as e:
+    st.sidebar.warning("Syncing data from Sheet...")
   return pd.DataFrame(columns=COLUMNS_LIST)
 
 
