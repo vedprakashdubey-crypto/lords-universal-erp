@@ -31,7 +31,7 @@ COLUMNS_LIST = [
     "Remarks",
 ]
 
-LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
+LOG_COLUMNS = ["Timestamp", "User", "Action", "Asset Code", "Details"]
 
 # Page configuration - FORCE EXPANDED SIDEBAR
 st.set_page_config(
@@ -50,7 +50,7 @@ def get_ist_now():
 
 today_date_str = get_ist_now().strftime("%d-%m-%Y")
 
-# --- CLEAN CSS FIX FOR SIDEBAR ARROW ---
+# --- CLEAN STYLING ---
 st.markdown(
     """
     <style>
@@ -287,6 +287,7 @@ if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
   st.session_state.logged_user = ""
   st.session_state.user_role = ""
+  st.session_state.user_name = ""
 
 # LOGIN FORM
 if not st.session_state.authenticated:
@@ -321,11 +322,16 @@ if not st.session_state.authenticated:
 
 def log_activity(action, asset_code, details):
   try:
-    # EXACT INDIAN STANDARD TIME (+5:30 IST)
     now_ist = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Fetch active user name & email for log table
+    current_user_email = st.session_state.get("logged_user", "Admin")
+    current_user_name = st.session_state.get("user_name", "Vedprakash Dubey")
+    user_str = f"{current_user_name} ({current_user_email})"
+
     log_data = {
         "Timestamp": now_ist,
-        "User Email": st.session_state.logged_user,
+        "User": user_str,
         "Action": action,
         "Asset Code": asset_code,
         "Details": details,
@@ -340,7 +346,16 @@ def load_logs():
     logs_df = db.load_data_from_sheet("Activity_Logs")
     if logs_df.empty:
       return pd.DataFrame(columns=LOG_COLUMNS)
-    return logs_df
+
+    # Clean & normalize User Column if legacy User Email exists
+    if "User Email" in logs_df.columns and "User" not in logs_df.columns:
+      logs_df = logs_df.rename(columns={"User Email": "User"})
+
+    for col in LOG_COLUMNS:
+      if col not in logs_df.columns:
+        logs_df[col] = "-"
+
+    return logs_df[LOG_COLUMNS]
   except Exception:
     return pd.DataFrame(columns=LOG_COLUMNS)
 
@@ -1032,8 +1047,8 @@ elif menu_selection == "✏️ Edit / Update Asset":
             log_activity(
                 "EDIT_ASSET",
                 selected_edit_code,
-                f"Updated Name: {edit_name.strip()}, Location:"
-                f" {edit_loc.strip()}, Status: {edit_status}",
+                f"Updated Details on {today_date_str}: Name: {edit_name.strip()},"
+                f" Location: {edit_loc.strip()}",
             )
             st.cache_data.clear()
             st.success(
