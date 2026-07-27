@@ -33,7 +33,7 @@ COLUMNS_LIST = [
 
 LOG_COLUMNS = ["Timestamp", "User Email", "Action", "Asset Code", "Details"]
 
-# Page configuration - FORCE EXPANDED SIDEBAR
+# PAGE CONFIG - INITIAL SIDEBAR EXPANDED
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
     layout="wide",
@@ -42,18 +42,38 @@ st.set_page_config(
 
 today_date_str = datetime.now().strftime("%d-%m-%Y")
 
-# --- CLEAN STYLING ---
+# --- CLEAN CSS FIX FOR SIDEBAR ARROW ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
+        /* HIDE UNWANTED FOOTERS ONLY */
         #MainMenu, footer, [data-testid="stStatusWidget"],
         [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
         div[class*="viewerBadge"], div[class*="manageApp"] {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
+        }
+
+        /* REMOVE WHITE OVERLAY & MAKE TOGGLE ARROW VISIBLE BRIGHT BLUE */
+        header[data-testid="stHeader"] {
+            background-color: transparent !important;
+        }
+        
+        [data-testid="stSidebarCollapsedControl"], 
+        [data-testid="stSidebarCollapseButton"],
+        button[aria-label="Toggle sidebar"] {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            background-color: #2563EB !important;
+            color: #FFFFFF !important;
+            border-radius: 8px !important;
+            border: 2px solid #38BDF8 !important;
+            z-index: 999999 !important;
+            margin: 10px !important;
         }
 
         html, body, [data-testid="stAppViewContainer"], .main {
@@ -67,11 +87,10 @@ st.markdown(
             padding: 1.5rem 2rem !important;
         }
         
-        /* FORCE SIDEBAR ALWAYS VISIBLE */
+        /* SIDEBAR ALWAYS EXPANDED STYLING */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
-            min-width: 260px !important;
         }
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"], 
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
@@ -317,7 +336,6 @@ def load_logs():
     return pd.DataFrame(columns=LOG_COLUMNS)
 
 
-# SAFE CACHED LOADER WITH ERROR CATCHING
 @st.cache_data(ttl=60)
 def load_database_file():
   try:
@@ -330,8 +348,8 @@ def load_database_file():
       for col in data.columns:
         data[col] = data[col].astype(str).str.strip()
       return data[COLUMNS_LIST]
-  except Exception as e:
-    st.sidebar.warning("Syncing data from Sheet...")
+  except Exception:
+    pass
   return pd.DataFrame(columns=COLUMNS_LIST)
 
 
