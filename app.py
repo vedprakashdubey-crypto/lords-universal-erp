@@ -1,9 +1,9 @@
 from datetime import datetime
 from io import BytesIO
 import os
+import google_db as db
 import pandas as pd
 import streamlit as st
-import google_db as db
 
 COLUMNS_LIST = [
     "Asset Code",
@@ -40,7 +40,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# System Date Helper for Movement/Tracking
 today_date_str = datetime.now().strftime("%d-%m-%Y")
 
 # --- GLOBAL STYLING + FIXED SIDEBAR TOGGLE ---
@@ -210,7 +209,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# USER CREDENTIALS MANAGEMENT
+# --- USER CREDENTIALS MANAGEMENT ---
 DEFAULT_USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -235,17 +234,21 @@ DEFAULT_USERS = {
 }
 
 
+@st.cache_data(ttl=60)
 def load_user_credentials():
-  udf = db.load_data_from_sheet("Users")
-  if not udf.empty and "Email" in udf.columns:
-    users_dict = {}
-    for _, r in udf.iterrows():
-      users_dict[str(r["Email"]).strip().lower()] = {
-          "pass": str(r["Password"]).strip(),
-          "role": str(r["Role"]).strip(),
-          "name": str(r["Name"]).strip(),
-      }
-    return users_dict
+  try:
+    udf = db.load_data_from_sheet("Users")
+    if not udf.empty and "Email" in udf.columns:
+      users_dict = {}
+      for _, r in udf.iterrows():
+        users_dict[str(r["Email"]).strip().lower()] = {
+            "pass": str(r["Password"]).strip(),
+            "role": str(r["Role"]).strip(),
+            "name": str(r["Name"]).strip(),
+        }
+      return users_dict
+  except Exception:
+    pass
   return DEFAULT_USERS
 
 
@@ -259,6 +262,7 @@ def save_user_credentials(email_id, new_pass):
         "Name": user_data["name"],
     }
     db.update_row_in_sheet("Users", "Email", email_id, updated_dict)
+    st.cache_data.clear()
 
 
 USERS = load_user_credentials()
@@ -318,6 +322,8 @@ def load_logs():
   return logs_df
 
 
+# FAST CACHED DATABASE LOADER
+@st.cache_data(ttl=60)
 def load_database_file():
   data = db.load_data_from_sheet("Assets")
   if not data.empty:
@@ -380,6 +386,10 @@ with st.sidebar:
       f" color:#FFFFFF;'>{st.session_state.user_name}</span></div>",
       unsafe_allow_html=True,
   )
+
+  if st.button("🔄 REFRESH LIVE DATA"):
+    st.cache_data.clear()
+    st.rerun()
 
   if st.button("🚪 LOGOUT"):
     st.session_state.authenticated = False
@@ -723,7 +733,7 @@ if menu_selection == "📊 Dashboard":
         else df
     )
 
-# ==================== MODULE 2: DATA ENTRY (PURCHASE/WARRANTY UNTOUCHED) ====================
+# ==================== MODULE 2: DATA ENTRY ====================
 elif menu_selection == "➕ Add New Asset":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Add New Item"
@@ -750,14 +760,12 @@ elif menu_selection == "➕ Add New Asset":
     in_os = r9.text_input("Operating System", value="-")
     in_mac = r10.text_input("MAC Address", value="-")
     in_ip = r11.text_input("IP Address", value="-")
-    # PURCHASE DATE KEPT CLEAN / UNTOUCHED FOR OFFICIAL INVOICE DATE
     in_pdate = r12.text_input("Purchase Date (DD-MM-YYYY)", value="-")
 
     r13, r14, r15, r16 = st.columns(4)
     in_inv = r13.text_input("Invoice Number", value="-")
     in_vendor = r14.text_input("Vendor", value="-")
     in_cost = r15.text_input("Purchase Cost", value="-")
-    # WARRANTY START KEPT CLEAN / UNTOUCHED FOR OFFICIAL VENDOR WARRANTY
     in_wstart = r16.text_input("Warranty Start", value="-")
 
     r17, r18, r19, r20 = st.columns(4)
@@ -774,7 +782,6 @@ elif menu_selection == "➕ Add New Asset":
 
     if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
       if in_cat.strip():
-        # --- DUPLICATE CHECK LOGIC ---
         serial_clean = in_serial.strip()
         mac_clean = in_mac.strip()
 
@@ -852,13 +859,13 @@ elif menu_selection == "➕ Add New Asset":
           }
 
           if db.append_row_to_sheet("Assets", new_row_dict):
-            # Creation timestamp logged in audit ledger without touching purchase/warranty dates
             log_activity(
                 "ADD_ASSET",
                 generated_asset_code,
                 f"Item Created on {today_date_str}: {in_name.strip()}"
                 f" ({in_cat.strip()})",
             )
+            st.cache_data.clear()
             st.success(
                 "Successfully Added! Generated Code:"
                 f" **{generated_asset_code}**"
@@ -1003,6 +1010,7 @@ elif menu_selection == "✏️ Edit / Update Asset":
                 f"Updated Details on {today_date_str}: Name: {edit_name.strip()},"
                 f" Location: {edit_loc.strip()}",
             )
+            st.cache_data.clear()
             st.success(
                 f"Asset Record **{selected_edit_code}** updated successfully!"
             )
@@ -1013,7 +1021,7 @@ elif menu_selection == "✏️ Edit / Update Asset":
           st.error("Category cannot be empty.")
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 4: ALLOCATION TRACKING (SEPARATE DATE STAMP) ====================
+# ==================== MODULE 4: ALLOCATION ====================
 elif menu_selection == "📑 Issue / Allocate Item":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Issue Item"
@@ -1037,7 +1045,6 @@ elif menu_selection == "📑 Issue / Allocate Item":
     target_loc = c3.text_input("Current Location (Room/Lab)*")
     c4, c5 = st.columns(2)
     target_dept = c4.text_input("Department", value="IT")
-    # SEPARATE TRACKING DATE PROVISION IN REMARKS / MOVEMENT LOGS
     issue_remarks = c5.text_input(
         "Remarks / Notes",
         value=f"Issued on {today_date_str} for official college use",
@@ -1061,6 +1068,7 @@ elif menu_selection == "📑 Issue / Allocate Item":
               f"Assigned To: {assign_user.strip()} [Issue Date:"
               f" {today_date_str}], Location: {target_loc.strip()}",
           )
+          st.cache_data.clear()
           st.success(
               f"Item {target_asset} allocated on **{today_date_str}**"
               " successfully!"
@@ -1078,7 +1086,7 @@ elif menu_selection == "📑 Issue / Allocate Item":
   )
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 5: REPAIR TRACKING (SEPARATE DATE STAMP) ====================
+# ==================== MODULE 5: REPAIR ====================
 elif menu_selection == "🛠️ Repair & Maintenance":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Maintenance"
@@ -1092,7 +1100,6 @@ elif menu_selection == "🛠️ Repair & Maintenance":
         "Select Asset Tag:", all_assets if all_assets else ["-"]
     )
     maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
-    # SEPARATE TRACKING DATE PROVISION FOR REPAIR MOVEMENT
     maint_remarks = rc3.text_input(
         "Fault / Repair Logs:",
         value=f"Sent for repair on {today_date_str}",
@@ -1114,6 +1121,7 @@ elif menu_selection == "🛠️ Repair & Maintenance":
             f"Maintenance Status: {maint_status} [Date: {today_date_str}],"
             f" Note: {maint_remarks.strip()}",
         )
+        st.cache_data.clear()
         st.success(
             f"Maintenance log updated on **{today_date_str}** successfully."
         )
@@ -1140,7 +1148,7 @@ elif menu_selection == "⏱️ Warranty Records":
   render_comprehensive_ledger(df)
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 7: AUDIT LOGS (ADMIN ONLY) ====================
+# ==================== MODULE 7: AUDIT LOGS ====================
 elif menu_selection == "📜 Activity Logs (Audit)":
   if st.session_state.user_role == "Admin":
     st.markdown(
@@ -1169,7 +1177,7 @@ elif menu_selection == "📜 Activity Logs (Audit)":
       st.info("No user activity logged yet.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 8: RESET PASSWORDS (ADMIN ONLY) ====================
+# ==================== MODULE 8: RESET PASSWORDS ====================
 elif menu_selection == "🔑 Reset User Passwords":
   if st.session_state.user_role == "Admin":
     st.markdown(
