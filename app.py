@@ -40,33 +40,36 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# System Date Helper for Movement/Tracking
+today_date_str = datetime.now().strftime("%d-%m-%Y")
+
 # --- GLOBAL STYLING + FIXED SIDEBAR TOGGLE ---
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap');
         
-        /* HIDE UNWANTED STREAMLIT ELEMENTS WHILE KEEPING SIDEBAR TOGGLE VISIBLE */
         #MainMenu, footer, [data-testid="stStatusWidget"],
-        .stAppToolbar, [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
+        [data-testid="manage-app-button"], [data-testid="stViewerBadge"],
         div[class*="viewerBadge"], div[class*="manageApp"] {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
         }
 
-        /* ENSURE SIDEBAR TOGGLE BUTTON IS ALWAYS VISIBLE AND STYLED BEAUTIFULLY */
-        [data-testid="stHeader"] {
-            background-color: transparent !important;
-            z-index: 99999 !important;
+        [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapseButton"] {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 999999 !important;
         }
-        [data-testid="stSidebarCollapseButton"], button[aria-label="Toggle sidebar"] {
+        
+        [data-testid="stSidebarCollapsedControl"] button, [data-testid="stSidebarCollapseButton"] button {
             background-color: #2563EB !important;
             color: #FFFFFF !important;
+            border: 2px solid #38BDF8 !important;
             border-radius: 8px !important;
-            border: 1px solid #38BDF8 !important;
-            visibility: visible !important;
-            display: flex !important;
+            padding: 6px 12px !important;
         }
 
         html, body, [data-testid="stAppViewContainer"], .main {
@@ -80,10 +83,10 @@ st.markdown(
             padding: 1.5rem 2rem !important;
         }
         
-        /* SIDEBAR SYSTEM PANEL */
         [data-testid="stSidebar"] {
             background-color: #1E293B !important;
             border-right: 1px solid #334155 !important;
+            display: block !important;
         }
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"], 
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
@@ -126,7 +129,6 @@ st.markdown(
             letter-spacing: 0.8px;
         }
 
-        /* METRIC PANEL STYLING */
         .metric-card-wrapper {
             background-color: #1E293B !important;
             border: 1px solid #334155 !important;
@@ -138,7 +140,6 @@ st.markdown(
         .card-label { font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; }
         .card-val { font-size: 36px; font-weight: 800; color: #FFFFFF; margin-top: 4px; }
 
-        /* BUTTON MODIFIERS */
         .stButton > button {
             width: 100% !important;
             border-top-left-radius: 0px !important;
@@ -161,7 +162,6 @@ st.markdown(
             border-color: #2563EB !important;
         }
 
-        /* DATA GRID MANAGEMENT */
         .erp-data-table {
             width: 100%;
             border-collapse: collapse;
@@ -186,7 +186,6 @@ st.markdown(
         .erp-data-table tr:nth-child(even) td { background-color: #111827; }
         .erp-data-table tr:hover td { background-color: #2D3748 !important; }
         
-        /* STATUS PILLS */
         .status-pill {
             padding: 4px 10px;
             border-radius: 6px;
@@ -211,7 +210,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- USER CREDENTIALS MANAGEMENT VIA GOOGLE SHEETS ---
+# USER CREDENTIALS MANAGEMENT
 DEFAULT_USERS = {
     "vedprakash.dubey@universal.edu.in": {
         "pass": "Vedprakash@123",
@@ -269,7 +268,7 @@ if "authenticated" not in st.session_state:
   st.session_state.logged_user = ""
   st.session_state.user_role = ""
 
-# --- LOGIN FORM ---
+# LOGIN FORM
 if not st.session_state.authenticated:
   st.markdown(
       """
@@ -360,7 +359,7 @@ def generate_product_prefix(category_str):
 if "current_dashboard_view" not in st.session_state:
   st.session_state.current_dashboard_view = "Main_Grid"
 
-# --- SIDEBAR CONTROL PANEL ---
+# SIDEBAR CONTROL PANEL
 with st.sidebar:
   st.markdown(
       "<div style='padding: 10px 0; border-bottom: 1px solid #334155;'><h2"
@@ -724,7 +723,7 @@ if menu_selection == "📊 Dashboard":
         else df
     )
 
-# ==================== MODULE 2: DATA ENTRY WITH DUPLICATE CHECK ====================
+# ==================== MODULE 2: DATA ENTRY (PURCHASE/WARRANTY UNTOUCHED) ====================
 elif menu_selection == "➕ Add New Asset":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Add New Item"
@@ -751,12 +750,14 @@ elif menu_selection == "➕ Add New Asset":
     in_os = r9.text_input("Operating System", value="-")
     in_mac = r10.text_input("MAC Address", value="-")
     in_ip = r11.text_input("IP Address", value="-")
+    # PURCHASE DATE KEPT CLEAN / UNTOUCHED FOR OFFICIAL INVOICE DATE
     in_pdate = r12.text_input("Purchase Date (DD-MM-YYYY)", value="-")
 
     r13, r14, r15, r16 = st.columns(4)
     in_inv = r13.text_input("Invoice Number", value="-")
     in_vendor = r14.text_input("Vendor", value="-")
     in_cost = r15.text_input("Purchase Cost", value="-")
+    # WARRANTY START KEPT CLEAN / UNTOUCHED FOR OFFICIAL VENDOR WARRANTY
     in_wstart = r16.text_input("Warranty Start", value="-")
 
     r17, r18, r19, r20 = st.columns(4)
@@ -769,7 +770,7 @@ elif menu_selection == "➕ Add New Asset":
     in_status = r21.selectbox(
         "Status", ["Available", "Issued", "In Repair", "Scrap"]
     )
-    in_rem = r22.text_input("Remarks", value="-")
+    in_rem = r22.text_input("Remarks", value=f"Added to ERP on {today_date_str}")
 
     if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
       if in_cat.strip():
@@ -851,11 +852,12 @@ elif menu_selection == "➕ Add New Asset":
           }
 
           if db.append_row_to_sheet("Assets", new_row_dict):
+            # Creation timestamp logged in audit ledger without touching purchase/warranty dates
             log_activity(
                 "ADD_ASSET",
                 generated_asset_code,
-                f"Added {in_name.strip()} ({in_cat.strip()}) under Location:"
-                f" {in_loc.strip()}",
+                f"Item Created on {today_date_str}: {in_name.strip()}"
+                f" ({in_cat.strip()})",
             )
             st.success(
                 "Successfully Added! Generated Code:"
@@ -998,8 +1000,8 @@ elif menu_selection == "✏️ Edit / Update Asset":
             log_activity(
                 "EDIT_ASSET",
                 selected_edit_code,
-                f"Updated Name: {edit_name.strip()}, Location:"
-                f" {edit_loc.strip()}, Status: {edit_status}",
+                f"Updated Details on {today_date_str}: Name: {edit_name.strip()},"
+                f" Location: {edit_loc.strip()}",
             )
             st.success(
                 f"Asset Record **{selected_edit_code}** updated successfully!"
@@ -1011,7 +1013,7 @@ elif menu_selection == "✏️ Edit / Update Asset":
           st.error("Category cannot be empty.")
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 4: ALLOCATION ====================
+# ==================== MODULE 4: ALLOCATION TRACKING (SEPARATE DATE STAMP) ====================
 elif menu_selection == "📑 Issue / Allocate Item":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Issue Item"
@@ -1035,8 +1037,10 @@ elif menu_selection == "📑 Issue / Allocate Item":
     target_loc = c3.text_input("Current Location (Room/Lab)*")
     c4, c5 = st.columns(2)
     target_dept = c4.text_input("Department", value="IT")
+    # SEPARATE TRACKING DATE PROVISION IN REMARKS / MOVEMENT LOGS
     issue_remarks = c5.text_input(
-        "Remarks / Notes", value="Issued for official college use"
+        "Remarks / Notes",
+        value=f"Issued on {today_date_str} for official college use",
     )
 
     if st.form_submit_button("⚡ ASSIGN / ISSUE NOW") and available_assets:
@@ -1054,10 +1058,13 @@ elif menu_selection == "📑 Issue / Allocate Item":
           log_activity(
               "ISSUE_ASSET",
               target_asset,
-              f"Assigned To: {assign_user.strip()}, Location:"
-              f" {target_loc.strip()}",
+              f"Assigned To: {assign_user.strip()} [Issue Date:"
+              f" {today_date_str}], Location: {target_loc.strip()}",
           )
-          st.success("Allocation updated successfully.")
+          st.success(
+              f"Item {target_asset} allocated on **{today_date_str}**"
+              " successfully!"
+          )
           st.rerun()
 
   st.markdown(
@@ -1071,7 +1078,7 @@ elif menu_selection == "📑 Issue / Allocate Item":
   )
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 5: REPAIR ====================
+# ==================== MODULE 5: REPAIR TRACKING (SEPARATE DATE STAMP) ====================
 elif menu_selection == "🛠️ Repair & Maintenance":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Maintenance"
@@ -1085,8 +1092,10 @@ elif menu_selection == "🛠️ Repair & Maintenance":
         "Select Asset Tag:", all_assets if all_assets else ["-"]
     )
     maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
+    # SEPARATE TRACKING DATE PROVISION FOR REPAIR MOVEMENT
     maint_remarks = rc3.text_input(
-        "Fault / Repair Logs:", value="Servicing requested"
+        "Fault / Repair Logs:",
+        value=f"Sent for repair on {today_date_str}",
     )
 
     if st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS") and all_assets:
@@ -1096,14 +1105,18 @@ elif menu_selection == "🛠️ Repair & Maintenance":
       if maint_status == "Available":
         row_data["Assigned To"] = "-"
         row_data["Current Location"] = "MAIN STORE"
+        row_data["Remarks"] = f"Returned from repair on {today_date_str}"
 
       if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
         log_activity(
             "MAINTENANCE_CHANGE",
             maint_asset,
-            f"Status changed to: {maint_status}, Note: {maint_remarks.strip()}",
+            f"Maintenance Status: {maint_status} [Date: {today_date_str}],"
+            f" Note: {maint_remarks.strip()}",
         )
-        st.success("Maintenance log updated.")
+        st.success(
+            f"Maintenance log updated on **{today_date_str}** successfully."
+        )
         st.rerun()
 
   st.markdown(
@@ -1132,7 +1145,7 @@ elif menu_selection == "📜 Activity Logs (Audit)":
   if st.session_state.user_role == "Admin":
     st.markdown(
         "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Activity & Audit Ledger</div>",
+        " Activity & Movement Audit Ledger</div>",
         unsafe_allow_html=True,
     )
 
