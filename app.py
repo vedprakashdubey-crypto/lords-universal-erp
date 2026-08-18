@@ -33,7 +33,7 @@ COLUMNS_LIST = [
 
 LOG_COLUMNS = ["Timestamp", "User", "Action", "Asset Code", "Details"]
 
-# Page configuration - FORCE EXPANDED SIDEBAR
+# Page configuration
 st.set_page_config(
     page_title="Lords Universal IT Asset ERP",
     layout="wide",
@@ -320,7 +320,6 @@ if not st.session_state.authenticated:
 def log_activity(action, asset_code, details):
   try:
     now_ist = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
-
     current_user_email = st.session_state.get("logged_user", "Admin")
     current_user_name = st.session_state.get("user_name", "Vedprakash Dubey")
     user_str = f"{current_user_name} ({current_user_email})"
@@ -401,6 +400,83 @@ def generate_product_prefix(category_str):
   return "".join(no_vowels[:3]) if len(no_vowels) >= 3 else clean_alpha[:3]
 
 
+# REUSABLE DOWNLOAD FUNCTION
+def render_download_buttons(dataframe, file_prefix="LUC_IT_Export", key_id=""):
+  if dataframe.empty:
+    return
+
+  col_d1, col_d2 = st.columns(2)
+
+  excel_stream = BytesIO()
+  with pd.ExcelWriter(excel_stream, engine="openpyxl") as ew:
+    dataframe.to_excel(ew, index=False)
+
+  col_d1.download_button(
+      label="📥 Download Excel (.xlsx)",
+      data=excel_stream.getvalue(),
+      file_name=f"{file_prefix}_{today_date_str}.xlsx",
+      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      key=f"dl_xlsx_{file_prefix}_{key_id}",
+      use_container_width=True,
+  )
+
+  csv_data = dataframe.to_csv(index=False).encode("utf-8")
+  col_d2.download_button(
+      label="📄 Download CSV (.csv)",
+      data=csv_data,
+      file_name=f"{file_prefix}_{today_date_str}.csv",
+      mime="text/csv",
+      key=f"dl_csv_{file_prefix}_{key_id}",
+      use_container_width=True,
+  )
+
+
+def render_comprehensive_ledger(
+    dataframe, file_prefix="LUC_IT_Ledger", show_downloads=True, key_id="view"
+):
+  if dataframe.empty:
+    st.info("No matching items found.")
+    return
+
+  if show_downloads:
+    render_download_buttons(dataframe, file_prefix=file_prefix, key_id=key_id)
+
+  html = (
+      "<div style='overflow-x:auto; border:1px solid #334155;"
+      " border-radius:10px; margin-top:12px;'><table"
+      " class='erp-data-table'><thead><tr>"
+  )
+  html += (
+      "".join(f"<th>{col}</th>" for col in COLUMNS_LIST) + "</tr></thead><tbody>"
+  )
+  for _, row in dataframe.iterrows():
+    html += "<tr>"
+    for col in COLUMNS_LIST:
+      val = row.get(col, "-")
+      if col == "Status":
+        if str(val).lower() in ["available", "working"]:
+          html += (
+              f"<td><span class='status-pill pill-available'>{val}</span></td>"
+          )
+        elif str(val).lower() in ["issued", "in use"]:
+          html += (
+              f"<td><span class='status-pill pill-issued'>{val}</span></td>"
+          )
+        elif "repair" in str(val).lower():
+          html += (
+              f"<td><span class='status-pill pill-repair'>{val}</span></td>"
+          )
+        elif str(val).lower() in ["scrap", "damaged"]:
+          html += f"<td><span class='status-pill pill-scrap'>{val}</span></td>"
+        else:
+          html += f"<td>{val}</td>"
+      else:
+        html += f"<td>{val}</td>"
+    html += "</tr>"
+  html += "</tbody></table></div>"
+  st.markdown(html, unsafe_allow_html=True)
+
+
 if "current_dashboard_view" not in st.session_state:
   st.session_state.current_dashboard_view = "Main_Grid"
 
@@ -434,6 +510,28 @@ with st.sidebar:
     st.session_state.authenticated = False
     st.rerun()
 
+  # FULL DATABASE BACKUP DOWNLOAD FROM SIDEBAR
+  if not df.empty:
+    st.markdown("---")
+    st.markdown(
+        "<span style='font-size:11px; color:#38BDF8; font-weight:700;'>"
+        "💾 COMPLETE DATABASE BACKUP</span>",
+        unsafe_allow_html=True,
+    )
+    backup_stream = BytesIO()
+    with pd.ExcelWriter(backup_stream, engine="openpyxl") as bkw:
+      df.to_excel(bkw, index=False)
+    st.download_button(
+        "📦 Export All Assets (.xlsx)",
+        data=backup_stream.getvalue(),
+        file_name=f"Full_ERP_Assets_Backup_{today_date_str}.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
+    st.markdown("---")
+
   menu_options = [
       "📊 Dashboard",
       "➕ Add New Asset",
@@ -460,46 +558,6 @@ st.markdown(
     f" color:#FFFFFF;'>{menu_selection[2:].upper()} PANEL</span></div>",
     unsafe_allow_html=True,
 )
-
-
-def render_comprehensive_ledger(dataframe):
-  if dataframe.empty:
-    st.info("No matching items found.")
-    return
-  html = (
-      "<div style='overflow-x:auto; border:1px solid #334155;"
-      " border-radius:10px;'><table class='erp-data-table'><thead><tr>"
-  )
-  html += (
-      "".join(f"<th>{col}</th>" for col in COLUMNS_LIST) + "</tr></thead><tbody>"
-  )
-  for _, row in dataframe.iterrows():
-    html += "<tr>"
-    for col in COLUMNS_LIST:
-      val = row.get(col, "-")
-      if col == "Status":
-        if str(val).lower() in ["available", "working"]:
-          html += (
-              f"<td><span class='status-pill pill-available'>{val}</span></td>"
-          )
-        elif str(val).lower() in ["issued", "in use"]:
-          html += (
-              f"<td><span class='status-pill pill-issued'>{val}</span></td>"
-          )
-        elif "repair" in str(val).lower():
-          html += (
-              f"<td><span class='status-pill pill-repair'>{val}</span></td>"
-          )
-        elif str(val).lower() in ["scrap", "damaged"]:
-          html += f"<td><span class='status-pill pill-scrap'>{val}</span></td>"
-        else:
-          html += f"<td>{val}</td>"
-      else:
-        html += f"<td>{val}</td>"
-    html += "</tr>"
-  html += "</tbody></table></div>"
-  st.markdown(html, unsafe_allow_html=True)
-
 
 # ==================== MODULE 1: INTERACTIVE DASHBOARD ====================
 if menu_selection == "📊 Dashboard":
@@ -621,13 +679,13 @@ if menu_selection == "📊 Dashboard":
 
       for _, row in cat_groups.iterrows():
         cat_html += f"""<tr>
-                    <td><b>{row['Category']}</b></td>
-                    <td><span style='font-weight:700;'>{row['Total']}</span> Items</td>
-                    <td><span class='status-pill pill-available'>{row['Available']}</span></td>
-                    <td><span class='status-pill pill-issued'>{row['Issued']}</span></td>
-                    <td><span class='status-pill pill-repair'>{row['In_Repair']}</span></td>
-                    <td><span class='status-pill pill-scrap'>{row['Scrap']}</span></td>
-                </tr>"""
+                        <td><b>{row['Category']}</b></td>
+                        <td><span style='font-weight:700;'>{row['Total']}</span> Items</td>
+                        <td><span class='status-pill pill-available'>{row['Available']}</span></td>
+                        <td><span class='status-pill pill-issued'>{row['Issued']}</span></td>
+                        <td><span class='status-pill pill-repair'>{row['In_Repair']}</span></td>
+                        <td><span class='status-pill pill-scrap'>{row['Scrap']}</span></td>
+                    </tr>"""
       cat_html += "</tbody></table></div>"
       st.markdown(cat_html, unsafe_allow_html=True)
     else:
@@ -668,7 +726,7 @@ if menu_selection == "📊 Dashboard":
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
-    fc1, fc2, fc3 = st.columns([1.5, 2, 1])
+    fc1, fc2 = st.columns([1.5, 2])
     grid_filter = fc1.selectbox(
         "Select Status Filter:",
         [
@@ -711,30 +769,23 @@ if menu_selection == "📊 Dashboard":
           .any(axis=1)
       ]
 
-    io_stream = BytesIO()
-    with pd.ExcelWriter(io_stream, engine="openpyxl") as ew:
-      df_view.to_excel(ew, index=False)
-    fc3.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-    fc3.download_button(
-        "📥 Export Current View",
-        data=io_stream.getvalue(),
-        file_name="LUC_IT_Inventory.xlsx",
-        use_container_width=True,
-    )
-
     st.markdown(
-        "<div class='card-heading' style='margin-top:20px;'>Active Ledger View"
+        "<div class='card-heading' style='margin-top:10px;'>Active Ledger View"
         f" ({len(df_view)} Items)</div>",
         unsafe_allow_html=True,
     )
-    render_comprehensive_ledger(df_view)
+    render_comprehensive_ledger(
+        df_view, file_prefix="Filtered_IT_Assets", key_id="main_grid"
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
   elif st.session_state.current_dashboard_view == "Total_View":
     if st.button("⬅️ Back Dashboard"):
       st.session_state.current_dashboard_view = "Main_Grid"
       st.rerun()
-    render_comprehensive_ledger(df)
+    render_comprehensive_ledger(
+        df, file_prefix="Total_IT_Assets", key_id="total"
+    )
   elif st.session_state.current_dashboard_view == "Available_View":
     if st.button("⬅️ Back Dashboard"):
       st.session_state.current_dashboard_view = "Main_Grid"
@@ -742,7 +793,9 @@ if menu_selection == "📊 Dashboard":
     render_comprehensive_ledger(
         df[df["Status"].str.lower().isin(["available", "working"])]
         if not df.empty
-        else df
+        else df,
+        file_prefix="Available_Assets",
+        key_id="avail",
     )
   elif st.session_state.current_dashboard_view == "Issued_View":
     if st.button("⬅️ Back Dashboard"):
@@ -751,7 +804,9 @@ if menu_selection == "📊 Dashboard":
     render_comprehensive_ledger(
         df[df["Status"].str.lower().isin(["issued", "in use"])]
         if not df.empty
-        else df
+        else df,
+        file_prefix="Issued_Assets",
+        key_id="issued",
     )
   elif st.session_state.current_dashboard_view == "Repair_View":
     if st.button("⬅️ Back Dashboard"):
@@ -760,7 +815,9 @@ if menu_selection == "📊 Dashboard":
     render_comprehensive_ledger(
         df[df["Status"].str.lower().str.contains("repair")]
         if not df.empty
-        else df
+        else df,
+        file_prefix="Repair_Assets",
+        key_id="repair",
     )
   elif st.session_state.current_dashboard_view == "Scrap_View":
     if st.button("⬅️ Back Dashboard"):
@@ -769,7 +826,9 @@ if menu_selection == "📊 Dashboard":
     render_comprehensive_ledger(
         df[df["Status"].str.lower().isin(["scrap", "damaged"])]
         if not df.empty
-        else df
+        else df,
+        file_prefix="Scrap_Assets",
+        key_id="scrap",
     )
 
 # ==================== MODULE 2: DATA ENTRY ====================
@@ -916,7 +975,7 @@ elif menu_selection == "➕ Add New Asset":
         st.error("Please fill the 'Category / Product Type' field.")
   st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== MODULE 3: EDIT / UPDATE ASSET (WITH CODE MODIFY FEATURE) ====================
+# ==================== MODULE 3: EDIT / UPDATE ASSET ====================
 elif menu_selection == "✏️ Edit / Update Asset":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Modify"
@@ -935,7 +994,6 @@ elif menu_selection == "✏️ Edit / Update Asset":
     with st.form("master_edit_form"):
       st.warning(f"You are modifying item record: {selected_edit_code}")
 
-      # EDITABLE ASSET CODE & AUTO-CODE GENERATOR OPTION
       c_code, c_autotick = st.columns([2, 2])
       edit_asset_code = c_code.text_input(
           "Asset Code (Can be modified manually)*", value=selected_edit_code
@@ -1027,7 +1085,6 @@ elif menu_selection == "✏️ Edit / Update Asset":
         if edit_cat.strip():
           final_asset_code = edit_asset_code.strip()
 
-          # Auto-regenerate Code if Category changed & Checkbox is Ticked
           if auto_recode:
             prefix = generate_product_prefix(edit_cat)
             full_prefix = f"LUC-{prefix}-"
@@ -1077,7 +1134,6 @@ elif menu_selection == "✏️ Edit / Update Asset":
               "Remarks": edit_rem.strip(),
           }
 
-          # Search & Update row in Google Sheet via original Asset Code
           if db.update_row_in_sheet(
               "Assets", "Asset Code", selected_edit_code, updated_dict
           ):
@@ -1159,7 +1215,9 @@ elif menu_selection == "📑 Issue / Allocate Item":
   render_comprehensive_ledger(
       df[df["Status"].str.lower().isin(["issued", "in use"])]
       if not df.empty
-      else df
+      else df,
+      file_prefix="Issued_Items",
+      key_id="module_issued",
   )
   st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1211,7 +1269,9 @@ elif menu_selection == "🛠️ Repair & Maintenance":
   render_comprehensive_ledger(
       df[df["Status"].str.lower().str.contains("repair")]
       if not df.empty
-      else df
+      else df,
+      file_prefix="Repair_Items",
+      key_id="module_repair",
   )
   st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1222,7 +1282,9 @@ elif menu_selection == "⏱️ Warranty Records":
       " AMC Status Ledger</div>",
       unsafe_allow_html=True,
   )
-  render_comprehensive_ledger(df)
+  render_comprehensive_ledger(
+      df, file_prefix="Warranty_Records", key_id="warranty"
+  )
   st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== MODULE 7: AUDIT LOGS ====================
@@ -1230,24 +1292,19 @@ elif menu_selection == "📜 Activity Logs (Audit)":
   if st.session_state.user_role == "Admin":
     st.markdown(
         "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Activity & Movement Audit Ledger (Indian Standard Time - IST)</div>",
+        " Activity & Movement Audit Ledger (Indian Standard Time -"
+        " IST)</div>",
         unsafe_allow_html=True,
     )
 
     logs_df = load_logs()
     if not logs_df.empty:
-      st.dataframe(
-          logs_df.sort_values(by="Timestamp", ascending=False),
-          use_container_width=True,
+      render_download_buttons(
+          logs_df, file_prefix="Audit_Activity_Logs", key_id="audit_logs"
       )
 
-      log_stream = BytesIO()
-      with pd.ExcelWriter(log_stream, engine="openpyxl") as lw:
-        logs_df.to_excel(lw, index=False)
-      st.download_button(
-          "📥 Export Audit Logs Excel",
-          data=log_stream.getvalue(),
-          file_name="ERP_Activity_Logs.xlsx",
+      st.dataframe(
+          logs_df.sort_values(by="Timestamp", ascending=False),
           use_container_width=True,
       )
     else:
