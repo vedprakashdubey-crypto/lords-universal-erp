@@ -32,6 +32,7 @@ COLUMNS_LIST = [
     "Last Verified Date",
     "Verified By",
     "Audit Status",
+    "Damage & Issue Description",
 ]
 
 LOG_COLUMNS = ["Timestamp", "User", "Action", "Asset Code", "Details"]
@@ -217,6 +218,15 @@ st.markdown(
             border: 1px solid #475569 !important;
         }
         label, p, span { color: #F8FAFC !important; }
+
+        .trigger-alert-box {
+            background: linear-gradient(90deg, #7F1D1D, #991B1B);
+            border: 2px solid #EF4444;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
     </style>
 """,
     unsafe_allow_html=True,
@@ -473,6 +483,11 @@ def render_comprehensive_ledger(
           html += f"<td><span style='color:#34D399; font-weight:700;'>✅ {val}</span></td>"
         else:
           html += f"<td><span style='color:#F87171; font-weight:700;'>⏳ {val}</span></td>"
+      elif col == "Damage & Issue Description":
+        if str(val).strip() not in ["-", "", "None (Good Condition)"]:
+          html += f"<td style='background-color:rgba(239, 68, 68, 0.2); color:#FCA5A5; font-weight:600;'>⚠️ {val}</td>"
+        else:
+          html += f"<td style='color:#94A3B8;'>{val}</td>"
       else:
         html += f"<td>{val}</td>"
     html += "</tr>"
@@ -587,6 +602,47 @@ if menu_selection == "📊 Dashboard":
         if not df.empty
         else 0
     )
+
+    # DAILY TRIGGER: DAMAGED / FAULTY ASSETS CHECK
+    damaged_df = pd.DataFrame()
+    if not df.empty and "Damage & Issue Description" in df.columns:
+      damaged_df = df[
+          ~df["Damage & Issue Description"]
+          .str.strip()
+          .isin(["-", "", "None (Good Condition)"])
+      ]
+
+    if not damaged_df.empty:
+      st.markdown(
+          f"""
+            <div class='trigger-alert-box'>
+                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <div>
+                        <span style='font-size:16px; font-weight:800; color:#FFFFFF;'>🚨 ATTENTION REQUIRED: {len(damaged_df)} ASSETS WITH ACTIVE DAMAGES / ISSUES!</span>
+                        <p style='margin:4px 0 0 0; font-size:13px; color:#FECACA;'>These hardware issues require repair, maintenance, or replacement action.</p>
+                    </div>
+                </div>
+            </div>
+            """,
+          unsafe_allow_html=True,
+      )
+
+      with st.expander(
+          f"🔴 VIEW {len(damaged_df)} DAMAGED & FAULTY ASSETS TO ACTION",
+          expanded=True,
+      ):
+        display_cols = [
+            "Asset Code",
+            "Asset Name",
+            "Category",
+            "Current Location",
+            "Assigned To",
+            "Status",
+            "Damage & Issue Description",
+            "Last Verified Date",
+        ]
+        valid_cols = [c for c in display_cols if c in damaged_df.columns]
+        st.dataframe(damaged_df[valid_cols], use_container_width=True)
 
     m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
@@ -739,11 +795,12 @@ if menu_selection == "📊 Dashboard":
             "Issued / Deployed",
             "In Repair Pipeline",
             "Scrap Yard Stock",
+            "⚠️ Items with Damage / Issues",
         ],
     )
     live_query = fc2.text_input(
         "Live Data Search Filter:",
-        placeholder="Type Tag, Brand, Staff Name, Location...",
+        placeholder="Type Tag, Brand, Staff Name, Location, Fault...",
     )
 
     df_view = df.copy()
@@ -758,6 +815,12 @@ if menu_selection == "📊 Dashboard":
     elif "Scrap" in grid_filter and not df_view.empty:
       df_view = df_view[
           df_view["Status"].str.lower().isin(["scrap", "damaged"])
+      ]
+    elif "Damage" in grid_filter and not df_view.empty:
+      df_view = df_view[
+          ~df_view["Damage & Issue Description"]
+          .str.strip()
+          .isin(["-", "", "None (Good Condition)"])
       ]
 
     if selected_cat != "All Categories" and "Category" in df_view.columns:
@@ -835,7 +898,7 @@ if menu_selection == "📊 Dashboard":
         key_id="scrap",
     )
 
-# ==================== MODULE: MONTHLY ASSET AUDIT (NEW) ====================
+# ==================== MODULE: MONTHLY ASSET AUDIT ====================
 elif menu_selection == "🔍 Monthly Asset Audit":
   st.markdown(
       "<div class='workspace-clean-card'><div class='card-heading'>Monthly"
@@ -949,8 +1012,22 @@ elif menu_selection == "🔍 Monthly Asset Audit":
             "Confirm Assigned To", value=item_row.get("Assigned To", "-")
         )
         v_notes = v_c5.text_input(
-            "Audit Notes / Remarks",
+            "Audit Notes / General Remarks",
             value=f"Monthly audit verified on {today_date_str}",
+        )
+
+        # DAMAGE DESCRIPTION INPUT FIELD
+        existing_damage = item_row.get("Damage & Issue Description", "")
+        if existing_damage in ["-", "None (Good Condition)"]:
+          existing_damage = ""
+        v_damage = st.text_input(
+            "⚠️ Damage / Fault / Issue Description (Keep empty or '-' if"
+            " working fine):",
+            value=existing_damage,
+            placeholder=(
+                "e.g. Broken display, RAM failure, Charging pin loose, Keys"
+                " not working..."
+            ),
         )
 
         if st.form_submit_button("✅ MARK AS VERIFIED TODAY"):
@@ -966,17 +1043,30 @@ elif menu_selection == "🔍 Monthly Asset Audit":
           updated_data["Assigned To"] = v_assigned.strip()
           updated_data["Remarks"] = v_notes.strip()
 
-          if v_status == "Needs Repair":
-            updated_data["Status"] = "In Repair"
-          elif v_status == "Scrap / Damaged":
-            updated_data["Status"] = "Scrap"
+          # Set Damage Column
+          damage_val = v_damage.strip()
+          if v_status in ["Needs Repair", "Scrap / Damaged"]:
+            if not damage_val or damage_val == "-":
+              damage_val = f"Reported {v_status} during audit"
+            updated_data["Damage & Issue Description"] = damage_val
+            updated_data["Status"] = (
+                "In Repair" if v_status == "Needs Repair" else "Scrap"
+            )
+          elif v_status == "Verified & Working":
+            updated_data["Damage & Issue Description"] = (
+                damage_val if damage_val and damage_val != "-" else "-"
+            )
+          else:
+            updated_data["Damage & Issue Description"] = (
+                damage_val if damage_val else f"Status: {v_status}"
+            )
 
           if db.update_row_in_sheet("Assets", "Asset Code", t_code, updated_data):
             log_activity(
                 "MONTHLY_AUDIT",
                 t_code,
-                f"Audited by {v_user.strip()}, Status: {v_status}, Location:"
-                f" {v_loc.strip()}",
+                f"Audited by {v_user.strip()}, Status: {v_status}, Damage:"
+                f" {updated_data['Damage & Issue Description']}",
             )
             st.cache_data.clear()
             st.success(
@@ -1066,6 +1156,10 @@ elif menu_selection == "➕ Add New Asset":
     )
     in_rem = r22.text_input("Remarks", value=f"Added to ERP on {today_date_str}")
 
+    in_damage = st.text_input(
+        "Any Damage / Fault Details (If applicable):", value="-"
+    )
+
     if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
       if in_cat.strip():
         serial_clean = in_serial.strip()
@@ -1153,6 +1247,7 @@ elif menu_selection == "➕ Add New Asset":
               "Last Verified Date": today_date_str,
               "Verified By": st.session_state.user_name,
               "Audit Status": "Verified",
+              "Damage & Issue Description": in_damage.strip(),
           }
 
           if db.append_row_to_sheet("Assets", new_row_dict):
@@ -1280,6 +1375,11 @@ elif menu_selection == "✏️ Edit / Update Asset":
           "Remarks", value=row_data.get("Remarks", "-")
       )
 
+      edit_damage = st.text_input(
+          "Damage & Issue Description:",
+          value=row_data.get("Damage & Issue Description", "-"),
+      )
+
       if st.form_submit_button("💾 UPDATE CHANGES"):
         if edit_cat.strip():
           final_asset_code = edit_asset_code.strip()
@@ -1338,6 +1438,7 @@ elif menu_selection == "✏️ Edit / Update Asset":
                   "Verified By", st.session_state.user_name
               ),
               "Audit Status": row_data.get("Audit Status", "Verified"),
+              "Damage & Issue Description": edit_damage.strip(),
           }
 
           if db.update_row_in_sheet(
@@ -1454,6 +1555,9 @@ elif menu_selection == "🛠️ Repair & Maintenance":
         row_data["Assigned To"] = "-"
         row_data["Current Location"] = "MAIN STORE"
         row_data["Remarks"] = f"Returned from repair on {today_date_str}"
+        row_data["Damage & Issue Description"] = (
+            "-"  # Issue fixed when back to stock
+        )
 
       if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
         log_activity(
