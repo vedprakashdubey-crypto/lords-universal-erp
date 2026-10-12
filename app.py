@@ -29,6 +29,9 @@ COLUMNS_LIST = [
     "Department",
     "Status",
     "Remarks",
+    "Last Verified Date",
+    "Verified By",
+    "Audit Status",
 ]
 
 LOG_COLUMNS = ["Timestamp", "User", "Action", "Asset Code", "Details"]
@@ -442,9 +445,8 @@ def render_comprehensive_ledger(
     render_download_buttons(dataframe, file_prefix=file_prefix, key_id=key_id)
 
   html = (
-      "<div style='overflow-x:auto; border:1px solid #334155;"
-      " border-radius:10px; margin-top:12px;'><table"
-      " class='erp-data-table'><thead><tr>"
+      "<div style='overflow-x:auto; border:1px solid #334155; border-radius:10px;"
+      " margin-top:12px;'><table class='erp-data-table'><thead><tr>"
   )
   html += (
       "".join(f"<th>{col}</th>" for col in COLUMNS_LIST) + "</tr></thead><tbody>"
@@ -459,17 +461,18 @@ def render_comprehensive_ledger(
               f"<td><span class='status-pill pill-available'>{val}</span></td>"
           )
         elif str(val).lower() in ["issued", "in use"]:
-          html += (
-              f"<td><span class='status-pill pill-issued'>{val}</span></td>"
-          )
+          html += f"<td><span class='status-pill pill-issued'>{val}</span></td>"
         elif "repair" in str(val).lower():
-          html += (
-              f"<td><span class='status-pill pill-repair'>{val}</span></td>"
-          )
+          html += f"<td><span class='status-pill pill-repair'>{val}</span></td>"
         elif str(val).lower() in ["scrap", "damaged"]:
           html += f"<td><span class='status-pill pill-scrap'>{val}</span></td>"
         else:
           html += f"<td>{val}</td>"
+      elif col == "Audit Status":
+        if "verified" in str(val).lower():
+          html += f"<td><span style='color:#34D399; font-weight:700;'>✅ {val}</span></td>"
+        else:
+          html += f"<td><span style='color:#F87171; font-weight:700;'>⏳ {val}</span></td>"
       else:
         html += f"<td>{val}</td>"
     html += "</tr>"
@@ -514,8 +517,8 @@ with st.sidebar:
   if not df.empty:
     st.markdown("---")
     st.markdown(
-        "<span style='font-size:11px; color:#38BDF8; font-weight:700;'>"
-        "💾 COMPLETE DATABASE BACKUP</span>",
+        "<span style='font-size:11px; color:#38BDF8; font-weight:700;'>💾"
+        " COMPLETE DATABASE BACKUP</span>",
         unsafe_allow_html=True,
     )
     backup_stream = BytesIO()
@@ -534,6 +537,7 @@ with st.sidebar:
 
   menu_options = [
       "📊 Dashboard",
+      "🔍 Monthly Asset Audit",
       "➕ Add New Asset",
       "✏️ Edit / Update Asset",
       "📑 Issue / Allocate Item",
@@ -831,6 +835,190 @@ if menu_selection == "📊 Dashboard":
         key_id="scrap",
     )
 
+# ==================== MODULE: MONTHLY ASSET AUDIT (NEW) ====================
+elif menu_selection == "🔍 Monthly Asset Audit":
+  st.markdown(
+      "<div class='workspace-clean-card'><div class='card-heading'>Monthly"
+      " Physical Verification & Asset Audit</div>",
+      unsafe_allow_html=True,
+  )
+
+  # Calculate 30-Day Audit Stats
+  today_dt = get_ist_now().date()
+  verified_this_month = 0
+  pending_audit = 0
+
+  if not df.empty:
+    for _, r in df.iterrows():
+      v_date_str = str(r.get("Last Verified Date", "-")).strip()
+      is_valid_recent = False
+      if v_date_str not in ["-", ""]:
+        for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+          try:
+            parsed = datetime.strptime(v_date_str, fmt).date()
+            if (today_dt - parsed).days <= 30:
+              is_valid_recent = True
+            break
+          except ValueError:
+            pass
+      if is_valid_recent:
+        verified_this_month += 1
+      else:
+        pending_audit += 1
+
+  # Metrics Row
+  col_a1, col_a2, col_a3 = st.columns(3)
+  with col_a1:
+    st.markdown(
+        f"<div class='metric-card-wrapper'><span class='card-label'>Total"
+        f" Assets</span><div class='card-val'>{len(df)}</div></div>",
+        unsafe_allow_html=True,
+    )
+  with col_a2:
+    st.markdown(
+        "<div class='metric-card-wrapper'><span class='card-label'"
+        " style='color:#34D399;'>Verified (Past 30 Days)</span><div"
+        f" class='card-val' style='color:#34D399;'>{verified_this_month}</div></div>",
+        unsafe_allow_html=True,
+    )
+  with col_a3:
+    st.markdown(
+        "<div class='metric-card-wrapper'><span class='card-label'"
+        " style='color:#F87171;'>Pending / Overdue Audit</span><div"
+        f" class='card-val' style='color:#F87171;'>{pending_audit}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+  st.markdown("---")
+
+  # Search / Scan Section
+  st.subheader("🔍 Quick Scan / Search Asset for Verification")
+  audit_search = st.text_input(
+      "Scan Barcode / Enter Asset Code, Serial Number or MAC:",
+      placeholder="e.g. LUC-LPT-001 or S/N...",
+      key="audit_search_input",
+  )
+
+  if audit_search.strip():
+    search_q = audit_search.strip().lower()
+    matched = df[
+        (df["Asset Code"].str.lower() == search_q)
+        | (df["Serial Number"].str.lower() == search_q)
+        | (df["MAC Address"].str.lower() == search_q)
+    ]
+
+    if matched.empty:
+      matched = df[
+          df.astype(str)
+          .apply(lambda x: x.str.contains(search_q, case=False))
+          .any(axis=1)
+      ]
+
+    if not matched.empty:
+      item_row = matched.iloc[0]
+      t_code = item_row["Asset Code"]
+
+      st.success(
+          f"Found: **{item_row.get('Asset Name', '')}** ({t_code}) - Brand:"
+          f" {item_row.get('Brand', '')} | Current Location:"
+          f" **{item_row.get('Current Location', '')}** | Assigned To:"
+          f" **{item_row.get('Assigned To', '')}**"
+      )
+
+      with st.form("verify_single_asset_form"):
+        v_c1, v_c2, v_c3 = st.columns(3)
+        v_user = v_c1.text_input(
+            "Auditor / Verified By", value=st.session_state.user_name
+        )
+        v_status = v_c2.selectbox(
+            "Physical Asset Condition",
+            [
+                "Verified & Working",
+                "Needs Repair",
+                "Scrap / Damaged",
+                "Missing / Not Found",
+            ],
+        )
+        v_loc = v_c3.text_input(
+            "Confirm Current Location",
+            value=item_row.get("Current Location", "MAIN STORE"),
+        )
+
+        v_c4, v_c5 = st.columns(2)
+        v_assigned = v_c4.text_input(
+            "Confirm Assigned To", value=item_row.get("Assigned To", "-")
+        )
+        v_notes = v_c5.text_input(
+            "Audit Notes / Remarks",
+            value=f"Monthly audit verified on {today_date_str}",
+        )
+
+        if st.form_submit_button("✅ MARK AS VERIFIED TODAY"):
+          updated_data = item_row.to_dict()
+          updated_data["Last Verified Date"] = today_date_str
+          updated_data["Verified By"] = v_user.strip()
+          updated_data["Audit Status"] = (
+              "Verified"
+              if "Verified" in v_status
+              else f"Discrepancy ({v_status})"
+          )
+          updated_data["Current Location"] = v_loc.strip()
+          updated_data["Assigned To"] = v_assigned.strip()
+          updated_data["Remarks"] = v_notes.strip()
+
+          if v_status == "Needs Repair":
+            updated_data["Status"] = "In Repair"
+          elif v_status == "Scrap / Damaged":
+            updated_data["Status"] = "Scrap"
+
+          if db.update_row_in_sheet("Assets", "Asset Code", t_code, updated_data):
+            log_activity(
+                "MONTHLY_AUDIT",
+                t_code,
+                f"Audited by {v_user.strip()}, Status: {v_status}, Location:"
+                f" {v_loc.strip()}",
+            )
+            st.cache_data.clear()
+            st.success(
+                f"Asset **{t_code}** successfully verified for {today_date_str}!"
+            )
+            st.rerun()
+          else:
+            st.error("Failed to update Google Sheet.")
+    else:
+      st.warning(f"No asset found matching '{audit_search}'.")
+
+  st.markdown("---")
+
+  # Table of Assets Pending Audit (Overdue)
+  st.subheader("⚠️ Pending Physical Audit (Over 30 Days or Never Verified)")
+
+  def check_overdue(date_val):
+    d_str = str(date_val).strip()
+    if d_str in ["-", ""]:
+      return True
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+      try:
+        dt = datetime.strptime(d_str, fmt).date()
+        return (today_dt - dt).days > 30
+      except ValueError:
+        pass
+    return True
+
+  if not df.empty:
+    overdue_mask = df["Last Verified Date"].apply(check_overdue)
+    overdue_df = df[overdue_mask]
+    st.write(
+        f"**{len(overdue_df)} Items** require physical verification this month."
+    )
+    render_comprehensive_ledger(
+        overdue_df, file_prefix="Overdue_Audit_Assets", key_id="overdue_audit"
+    )
+  else:
+    st.info("No items in the asset database.")
+
+  st.markdown("</div>", unsafe_allow_html=True)
+
 # ==================== MODULE 2: DATA ENTRY ====================
 elif menu_selection == "➕ Add New Asset":
   st.markdown(
@@ -862,487 +1050,4 @@ elif menu_selection == "➕ Add New Asset":
 
     r13, r14, r15, r16 = st.columns(4)
     in_inv = r13.text_input("Invoice Number", value="-")
-    in_vendor = r14.text_input("Vendor", value="-")
-    in_cost = r15.text_input("Purchase Cost", value="-")
-    in_wstart = r16.text_input("Warranty Start", value="-")
-
-    r17, r18, r19, r20 = st.columns(4)
-    in_wend = r17.text_input("Warranty End", value="-")
-    in_loc = r18.text_input("Current Location", value="MAIN STORE")
-    in_teach = r19.text_input("Assigned To", value="-")
-    in_dept = r20.text_input("Department", value="IT")
-
-    r21, r22 = st.columns([2, 2])
-    in_status = r21.selectbox(
-        "Status", ["Available", "Issued", "In Repair", "Scrap"]
-    )
-    in_rem = r22.text_input("Remarks", value=f"Added to ERP on {today_date_str}")
-
-    if st.form_submit_button("🚀 SAVE DEVICE WITH AUTO-CODE"):
-      if in_cat.strip():
-        serial_clean = in_serial.strip()
-        mac_clean = in_mac.strip()
-
-        is_duplicate = False
-        duplicate_msg = ""
-
-        if not df.empty:
-          if serial_clean and serial_clean != "-":
-            matching_sn = df[
-                df["Serial Number"].str.lower() == serial_clean.lower()
-            ]
-            if not matching_sn.empty:
-              is_duplicate = True
-              existing_code = matching_sn.iloc[0]["Asset Code"]
-              duplicate_msg = f"⚠️ Duplicate Entry Blocked! Serial Number **'{serial_clean}'** already exists for Asset Code: **{existing_code}**"
-
-          if not is_duplicate and mac_clean and mac_clean != "-":
-            matching_mac = df[
-                df["MAC Address"].str.lower() == mac_clean.lower()
-            ]
-            if not matching_mac.empty:
-              is_duplicate = True
-              existing_code = matching_mac.iloc[0]["Asset Code"]
-              duplicate_msg = f"⚠️ Duplicate Entry Blocked! MAC Address **'{mac_clean}'** already exists for Asset Code: **{existing_code}**"
-
-        if is_duplicate:
-          st.error(duplicate_msg)
-        else:
-          prefix = generate_product_prefix(in_cat)
-          full_prefix = f"LUC-{prefix}-"
-
-          matching_codes = (
-              df[df["Asset Code"].str.startswith(full_prefix)][
-                  "Asset Code"
-              ].tolist()
-              if not df.empty
-              else []
-          )
-          max_num = 0
-          for code in matching_codes:
-            try:
-              num_part = int(code.split("-")[-1])
-              if num_part > max_num:
-                max_num = num_part
-            except ValueError:
-              continue
-
-          next_num = max_num + 1
-          generated_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
-
-          new_row_dict = {
-              "Asset Code": generated_asset_code,
-              "Asset Name": in_name.strip(),
-              "Category": in_cat.strip(),
-              "Brand": in_brand.strip(),
-              "Model": in_model.strip(),
-              "Serial Number": serial_clean,
-              "Processor": in_proc.strip(),
-              "RAM": in_ram.strip(),
-              "Storage": in_storage.strip(),
-              "Operating System": in_os.strip(),
-              "MAC Address": mac_clean,
-              "IP Address": in_ip.strip(),
-              "Purchase Date": in_pdate.strip(),
-              "Invoice Number": in_inv.strip(),
-              "Vendor": in_vendor.strip(),
-              "Purchase Cost": in_cost.strip(),
-              "Warranty Start": in_wstart.strip(),
-              "Warranty End": in_wend.strip(),
-              "Current Location": in_loc.strip(),
-              "Assigned To": in_teach.strip(),
-              "Department": in_dept.strip(),
-              "Status": in_status,
-              "Remarks": in_rem.strip(),
-          }
-
-          if db.append_row_to_sheet("Assets", new_row_dict):
-            log_activity(
-                "ADD_ASSET",
-                generated_asset_code,
-                f"Added {in_name.strip()} ({in_cat.strip()}) under Location:"
-                f" {in_loc.strip()}",
-            )
-            st.cache_data.clear()
-            st.success(
-                "Successfully Added! Generated Code:"
-                f" **{generated_asset_code}**"
-            )
-            st.rerun()
-          else:
-            st.error("Failed to save to Google Sheets.")
-      else:
-        st.error("Please fill the 'Category / Product Type' field.")
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 3: EDIT / UPDATE ASSET ====================
-elif menu_selection == "✏️ Edit / Update Asset":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Modify"
-      " Existing Asset Details & Code</div>",
-      unsafe_allow_html=True,
-  )
-
-  asset_list = sorted(df["Asset Code"].tolist()) if not df.empty else []
-  selected_edit_code = st.selectbox(
-      "Select Asset Code to Edit:", ["-- Select Code --"] + asset_list
-  )
-
-  if selected_edit_code != "-- Select Code --":
-    row_data = df[df["Asset Code"] == selected_edit_code].iloc[0]
-
-    with st.form("master_edit_form"):
-      st.warning(f"You are modifying item record: {selected_edit_code}")
-
-      c_code, c_autotick = st.columns([2, 2])
-      edit_asset_code = c_code.text_input(
-          "Asset Code (Can be modified manually)*", value=selected_edit_code
-      )
-      auto_recode = c_autotick.checkbox(
-          "⚡ Auto-Update Asset Code according to Category?"
-      )
-
-      er1, er2, er3, er4 = st.columns(4)
-      edit_cat = er1.text_input(
-          "Category / Product Type*", value=row_data.get("Category", "")
-      )
-      edit_name = er2.text_input(
-          "Asset / Item Name", value=row_data.get("Asset Name", "")
-      )
-      edit_brand = er3.text_input("Brand", value=row_data.get("Brand", ""))
-      edit_model = er4.text_input(
-          "Model Number", value=row_data.get("Model", "")
-      )
-
-      er5, er6, er7, er8 = st.columns(4)
-      edit_serial = er5.text_input(
-          "Serial Number (S/N)", value=row_data.get("Serial Number", "")
-      )
-      edit_proc = er6.text_input(
-          "Processor", value=row_data.get("Processor", "-")
-      )
-      edit_ram = er7.text_input("RAM", value=row_data.get("RAM", "-"))
-      edit_storage = er8.text_input(
-          "Storage", value=row_data.get("Storage", "-")
-      )
-
-      er9, er10, er11, er12 = st.columns(4)
-      edit_os = er9.text_input(
-          "Operating System", value=row_data.get("Operating System", "-")
-      )
-      edit_mac = er10.text_input(
-          "MAC Address", value=row_data.get("MAC Address", "-")
-      )
-      edit_ip = er11.text_input(
-          "IP Address", value=row_data.get("IP Address", "-")
-      )
-      edit_pdate = er12.text_input(
-          "Purchase Date", value=row_data.get("Purchase Date", "-")
-      )
-
-      er13, er14, er15, er16 = st.columns(4)
-      edit_inv = er13.text_input(
-          "Invoice Number", value=row_data.get("Invoice Number", "-")
-      )
-      edit_vendor = er14.text_input(
-          "Vendor", value=row_data.get("Vendor", "-")
-      )
-      edit_cost = er15.text_input(
-          "Purchase Cost", value=row_data.get("Purchase Cost", "-")
-      )
-      edit_wstart = er16.text_input(
-          "Warranty Start", value=row_data.get("Warranty Start", "-")
-      )
-
-      er17, er18, er19, er20 = st.columns(4)
-      edit_wend = er17.text_input(
-          "Warranty End", value=row_data.get("Warranty End", "-")
-      )
-      edit_loc = er18.text_input(
-          "Current Location",
-          value=row_data.get("Current Location", "MAIN STORE"),
-      )
-      edit_teach = er19.text_input(
-          "Assigned To", value=row_data.get("Assigned To", "-")
-      )
-      edit_dept = er20.text_input(
-          "Department", value=row_data.get("Department", "IT")
-      )
-
-      er21, er22 = st.columns([2, 2])
-      status_index = ["Available", "Issued", "In Repair", "Scrap"]
-      current_status = row_data.get("Status", "Available")
-      if current_status not in status_index:
-        current_status = "Available"
-      edit_status = er21.selectbox(
-          "Status", status_index, index=status_index.index(current_status)
-      )
-      edit_rem = er22.text_input(
-          "Remarks", value=row_data.get("Remarks", "-")
-      )
-
-      if st.form_submit_button("💾 UPDATE CHANGES"):
-        if edit_cat.strip():
-          final_asset_code = edit_asset_code.strip()
-
-          if auto_recode:
-            prefix = generate_product_prefix(edit_cat)
-            full_prefix = f"LUC-{prefix}-"
-
-            matching_codes = (
-                df[df["Asset Code"].str.startswith(full_prefix)][
-                    "Asset Code"
-                ].tolist()
-                if not df.empty
-                else []
-            )
-            max_num = 0
-            for code in matching_codes:
-              try:
-                num_part = int(code.split("-")[-1])
-                if num_part > max_num:
-                  max_num = num_part
-              except ValueError:
-                continue
-
-            next_num = max_num + 1
-            final_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
-
-          updated_dict = {
-              "Asset Code": final_asset_code,
-              "Asset Name": edit_name.strip(),
-              "Category": edit_cat.strip(),
-              "Brand": edit_brand.strip(),
-              "Model": edit_model.strip(),
-              "Serial Number": edit_serial.strip(),
-              "Processor": edit_proc.strip(),
-              "RAM": edit_ram.strip(),
-              "Storage": edit_storage.strip(),
-              "Operating System": edit_os.strip(),
-              "MAC Address": edit_mac.strip(),
-              "IP Address": edit_ip.strip(),
-              "Purchase Date": edit_pdate.strip(),
-              "Invoice Number": edit_inv.strip(),
-              "Vendor": edit_vendor.strip(),
-              "Purchase Cost": edit_cost.strip(),
-              "Warranty Start": edit_wstart.strip(),
-              "Warranty End": edit_wend.strip(),
-              "Current Location": edit_loc.strip(),
-              "Assigned To": edit_teach.strip(),
-              "Department": edit_dept.strip(),
-              "Status": edit_status,
-              "Remarks": edit_rem.strip(),
-          }
-
-          if db.update_row_in_sheet(
-              "Assets", "Asset Code", selected_edit_code, updated_dict
-          ):
-            log_activity(
-                "EDIT_ASSET",
-                final_asset_code,
-                f"Updated Item Details & Code (Old: {selected_edit_code} ➡️"
-                f" New: {final_asset_code}), Category: {edit_cat.strip()}",
-            )
-            st.cache_data.clear()
-            st.success(
-                f"Asset Record **{final_asset_code}** updated successfully!"
-            )
-            st.rerun()
-          else:
-            st.error("Failed to update record in Google Sheets.")
-        else:
-          st.error("Category cannot be empty.")
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 4: ALLOCATION ====================
-elif menu_selection == "📑 Issue / Allocate Item":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Issue Item"
-      " Form</div>",
-      unsafe_allow_html=True,
-  )
-  with st.form("issue_form"):
-    available_assets = (
-        df[df["Status"].str.lower().isin(["available", "working"])][
-            "Asset Code"
-        ].tolist()
-        if not df.empty
-        else []
-    )
-    c1, c2, c3 = st.columns(3)
-    target_asset = c1.selectbox(
-        "Select Asset Tag:",
-        available_assets if available_assets else ["No Stock Available"],
-    )
-    assign_user = c2.text_input("Assigned To (Staff Name)*")
-    target_loc = c3.text_input("Current Location (Room/Lab)*")
-    c4, c5 = st.columns(2)
-    target_dept = c4.text_input("Department", value="IT")
-    issue_remarks = c5.text_input(
-        "Remarks / Notes",
-        value=f"Issued on {today_date_str} for official college use",
-    )
-
-    if st.form_submit_button("⚡ ASSIGN / ISSUE NOW") and available_assets:
-      if assign_user.strip() and target_loc.strip():
-        row_data = df[df["Asset Code"] == target_asset].iloc[0].to_dict()
-        row_data["Assigned To"] = assign_user.strip()
-        row_data["Current Location"] = target_loc.strip()
-        row_data["Department"] = target_dept.strip()
-        row_data["Status"] = "Issued"
-        row_data["Remarks"] = issue_remarks.strip()
-
-        if db.update_row_in_sheet(
-            "Assets", "Asset Code", target_asset, row_data
-        ):
-          log_activity(
-              "ISSUE_ASSET",
-              target_asset,
-              f"Assigned To: {assign_user.strip()} [Issue Date:"
-              f" {today_date_str}], Location: {target_loc.strip()}",
-          )
-          st.cache_data.clear()
-          st.success(
-              f"Item {target_asset} allocated on **{today_date_str}**"
-              " successfully!"
-          )
-          st.rerun()
-
-  st.markdown(
-      "<br><div class='card-heading'>Currently Issued Items Matrix</div>",
-      unsafe_allow_html=True,
-  )
-  render_comprehensive_ledger(
-      df[df["Status"].str.lower().isin(["issued", "in use"])]
-      if not df.empty
-      else df,
-      file_prefix="Issued_Items",
-      key_id="module_issued",
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 5: REPAIR ====================
-elif menu_selection == "🛠️ Repair & Maintenance":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Maintenance"
-      " Loop Control</div>",
-      unsafe_allow_html=True,
-  )
-  with st.form("repair_form"):
-    all_assets = df["Asset Code"].tolist() if not df.empty else []
-    rc1, rc2, rc3 = st.columns(3)
-    maint_asset = rc1.selectbox(
-        "Select Asset Tag:", all_assets if all_assets else ["-"]
-    )
-    maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
-    maint_remarks = rc3.text_input(
-        "Fault / Repair Logs:",
-        value=f"Sent for repair on {today_date_str}",
-    )
-
-    if st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS") and all_assets:
-      row_data = df[df["Asset Code"] == maint_asset].iloc[0].to_dict()
-      row_data["Status"] = maint_status
-      row_data["Remarks"] = maint_remarks.strip()
-      if maint_status == "Available":
-        row_data["Assigned To"] = "-"
-        row_data["Current Location"] = "MAIN STORE"
-        row_data["Remarks"] = f"Returned from repair on {today_date_str}"
-
-      if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
-        log_activity(
-            "MAINTENANCE_CHANGE",
-            maint_asset,
-            f"Maintenance Status: {maint_status} [Date: {today_date_str}],"
-            f" Note: {maint_remarks.strip()}",
-        )
-        st.cache_data.clear()
-        st.success(
-            f"Maintenance log updated on **{today_date_str}** successfully."
-        )
-        st.rerun()
-
-  st.markdown(
-      "<br><div class='card-heading'>Active Items Under Repair</div>",
-      unsafe_allow_html=True,
-  )
-  render_comprehensive_ledger(
-      df[df["Status"].str.lower().str.contains("repair")]
-      if not df.empty
-      else df,
-      file_prefix="Repair_Items",
-      key_id="module_repair",
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 6: WARRANTY ====================
-elif menu_selection == "⏱️ Warranty Records":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Warranty &"
-      " AMC Status Ledger</div>",
-      unsafe_allow_html=True,
-  )
-  render_comprehensive_ledger(
-      df, file_prefix="Warranty_Records", key_id="warranty"
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 7: AUDIT LOGS ====================
-elif menu_selection == "📜 Activity Logs (Audit)":
-  if st.session_state.user_role == "Admin":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Activity & Movement Audit Ledger (Indian Standard Time -"
-        " IST)</div>",
-        unsafe_allow_html=True,
-    )
-
-    logs_df = load_logs()
-    if not logs_df.empty:
-      render_download_buttons(
-          logs_df, file_prefix="Audit_Activity_Logs", key_id="audit_logs"
-      )
-
-      st.dataframe(
-          logs_df.sort_values(by="Timestamp", ascending=False),
-          use_container_width=True,
-      )
-    else:
-      st.info("No user activity logged yet.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 8: RESET PASSWORDS ====================
-elif menu_selection == "🔑 Reset User Passwords":
-  if st.session_state.user_role == "Admin":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Password Management</div>",
-        unsafe_allow_html=True,
-    )
-
-    user_list = list(USERS.keys())
-
-    with st.form("reset_pwd_form"):
-      selected_user = st.selectbox(
-          "Select User Account to Reset:", user_list
-      )
-      new_pwd = st.text_input("New Password", type="password")
-      confirm_pwd = st.text_input("Confirm New Password", type="password")
-
-      if st.form_submit_button("🔄 UPDATE PASSWORD NOW"):
-        if new_pwd and new_pwd == confirm_pwd:
-          USERS[selected_user]["pass"] = new_pwd
-          save_user_credentials(selected_user, new_pwd)
-          log_activity(
-              "PASSWORD_RESET",
-              "-",
-              f"Admin reset password for user: {selected_user}",
-          )
-          st.success(
-              f"Password for **{selected_user}** has been successfully updated!"
-          )
-        elif new_pwd != confirm_pwd:
-          st.error("Passwords do not match!")
-        else:
-          st.error("Please enter a valid password.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    in_vendor = r14.
