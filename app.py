@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import os
+import re
 import google_db as db
 import pandas as pd
 import streamlit as st
@@ -276,7 +277,7 @@ DEFAULT_USERS = {
 }
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def load_user_credentials():
   try:
     udf = db.load_data_from_sheet("Users")
@@ -360,33 +361,38 @@ def log_activity(action, asset_code, details):
         "Timestamp": now_ist,
         "User": user_str,
         "Action": action,
-        "Asset Code": asset_code,
+        "Asset Code": str(asset_code).strip(),
         "Details": details,
     }
-    db.append_row_to_sheet("Activity_Logs", log_data)
+    # Dono tab names try karega safely
+    try:
+      db.append_row_to_sheet("Activity_Logs", log_data)
+    except Exception:
+      db.append_row_to_sheet("Activity Logs", log_data)
   except Exception:
     pass
 
 
+@st.cache_data(ttl=10)
 def load_logs():
-  try:
-    logs_df = db.load_data_from_sheet("Activity_Logs")
-    if logs_df.empty:
-      return pd.DataFrame(columns=LOG_COLUMNS)
+  for sheet_name in ["Activity_Logs", "Activity Logs"]:
+    try:
+      logs_df = db.load_data_from_sheet(sheet_name)
+      if not logs_df.empty:
+        if "User Email" in logs_df.columns and "User" not in logs_df.columns:
+          logs_df = logs_df.rename(columns={"User Email": "User"})
+        for col in LOG_COLUMNS:
+          if col not in logs_df.columns:
+            logs_df[col] = "-"
+        for col in logs_df.columns:
+          logs_df[col] = logs_df[col].astype(str).str.strip()
+        return logs_df[LOG_COLUMNS]
+    except Exception:
+      pass
+  return pd.DataFrame(columns=LOG_COLUMNS)
 
-    if "User Email" in logs_df.columns and "User" not in logs_df.columns:
-      logs_df = logs_df.rename(columns={"User Email": "User"})
 
-    for col in LOG_COLUMNS:
-      if col not in logs_df.columns:
-        logs_df[col] = "-"
-
-    return logs_df[LOG_COLUMNS]
-  except Exception:
-    return pd.DataFrame(columns=LOG_COLUMNS)
-
-
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def load_database_file():
   try:
     data = db.load_data_from_sheet("Assets")
@@ -624,7 +630,6 @@ if menu_selection == "📊 Dashboard":
         else 0
     )
 
-    # DAILY TRIGGER: DAMAGED / FAULTY ASSETS CHECK
     damaged_df = pd.DataFrame()
     if not df.empty and "Damage & Issue Description" in df.columns:
       damaged_df = df[
@@ -927,7 +932,6 @@ elif menu_selection == "🔍 Monthly Asset Audit":
       unsafe_allow_html=True,
   )
 
-  # Calculate 30-Day Audit Stats
   today_dt = get_ist_now().date()
   verified_this_month = 0
   pending_audit = 0
@@ -950,7 +954,6 @@ elif menu_selection == "🔍 Monthly Asset Audit":
       else:
         pending_audit += 1
 
-  # Metrics Row
   col_a1, col_a2, col_a3 = st.columns(3)
   with col_a1:
     st.markdown(
@@ -975,7 +978,6 @@ elif menu_selection == "🔍 Monthly Asset Audit":
 
   st.markdown("---")
 
-  # Search / Scan Section
   st.subheader("🔍 Quick Scan / Search Asset for Verification")
   audit_search = st.text_input(
       "Scan Barcode / Enter Asset Code, Serial Number or MAC:",
@@ -1643,27 +1645,39 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
       unsafe_allow_html=True,
   )
 
+  # Dynamic extractor: Extracts repair logs from Activity Logs AND Assets table
   asset_repair_stats = {}
   parsed_repairs_by_asset = {}
 
+  for a_c in df["Asset Code"].tolist() if not df.empty else []:
+    asset_repair_stats[str(a_c).strip()] = {"count": 0, "total_cost": 0}
+    parsed_repairs_by_asset[str(a_c).strip()] = []
+
+  # 1. Activity Logs check
   if not logs_df.empty:
     for _, log_r in logs_df.iterrows():
-      act = str(log_r.get("Action", ""))
-      det = str(log_r.get("Details", ""))
+      act = str(log_r.get("Action", "")).strip()
+      det = str(log_r.get("Details", "")).strip()
       a_code = str(log_r.get("Asset Code", "")).strip()
+
+      if not a_code or a_code == "-":
+        continue
 
       if a_code not in asset_repair_stats:
         asset_repair_stats[a_code] = {"count": 0, "total_cost": 0}
         parsed_repairs_by_asset[a_code] = []
 
-      if (
-          "MAINTENANCE_CHANGE" in act
-          or "repair" in det.lower()
-          or "REPAIRED:" in det
-      ):
-        part = "General Maintenance / Repair"
+      # Agar action ya details me repair ho
+      is_repair = (
+          ("MAINTENANCE" in act.upper())
+          or ("REPAIR" in act.upper())
+          or ("REPAIRED:" in det.upper())
+          or ("REPAIR" in det.lower())
+      )
+      if is_repair:
+        part = "General Repair / Maintenance"
         cost = 0
-        vendor = "-"
+        vendor = "In-House"
 
         if "REPAIRED:" in det:
           try:
@@ -1673,11 +1687,11 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
               if seg.startswith("REPAIRED:"):
                 part = seg.replace("REPAIRED:", "").strip()
               elif seg.startswith("COST:"):
-                cost_str = "".join(
+                cost_num = "".join(
                     c for c in seg.replace("COST:", "") if c.isdigit()
                 )
-                if cost_str:
-                  cost = int(cost_str)
+                if cost_num:
+                  cost = int(cost_num)
               elif seg.startswith("VENDOR:"):
                 vendor = seg.replace("VENDOR:", "").strip()
           except Exception:
@@ -1694,6 +1708,39 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
             "Repair Cost (₹)": f"₹{cost:,}" if cost > 0 else "₹0",
             "Logged By": log_r.get("User", "-"),
         })
+
+  # 2. Fallback check from Assets Sheet (Agar Activity Log me purani entries save nahi thi)
+  if not df.empty:
+    for _, r_ast in df.iterrows():
+      code_str = str(r_ast.get("Asset Code", "")).strip()
+      st_str = str(r_ast.get("Status", "")).strip().lower()
+      rem_str = str(r_ast.get("Remarks", "")).strip()
+      dmg_str = str(r_ast.get("Damage & Issue Description", "")).strip()
+
+      # Agar status in repair hai ya remarks me repair likha hai par logs me 0 tha
+      if (
+          "repair" in st_str
+          or "repair" in rem_str.lower()
+          or "repair" in dmg_str.lower()
+      ):
+        if code_str in asset_repair_stats and (
+            len(parsed_repairs_by_asset.get(code_str, [])) == 0
+        ):
+          issue_name = (
+              dmg_str
+              if dmg_str not in ["-", "", "None (Good Condition)"]
+              else rem_str
+          )
+          asset_repair_stats[code_str]["count"] = 1
+          parsed_repairs_by_asset[code_str].append({
+              "Date": str(r_ast.get("Last Verified Date", today_date_str)),
+              "Repaired Item / Part Replaced": (
+                  issue_name if issue_name else "Hardware Issue / In Repair"
+              ),
+              "Service Vendor": "In-House / IT Store",
+              "Repair Cost (₹)": "₹0",
+              "Logged By": str(r_ast.get("Verified By", "System Record")),
+          })
 
   asset_options = sorted(df["Asset Code"].tolist()) if not df.empty else []
   col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
@@ -1829,8 +1876,10 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
 
     asset_history_logs = pd.DataFrame()
     if not logs_df.empty:
+      clean_tag = selected_asset.strip().lower()
       asset_history_logs = logs_df[
-          logs_df["Asset Code"].str.lower() == selected_asset.lower()
+          (logs_df["Asset Code"].str.lower() == clean_tag)
+          | (logs_df["Details"].str.lower().str.contains(clean_tag))
       ].sort_values(by="Timestamp", ascending=False)
 
     if not asset_history_logs.empty:
@@ -1866,6 +1915,11 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
                 """,
             unsafe_allow_html=True,
         )
+    else:
+      st.info(
+          f"Abhi tak is asset ({selected_asset}) ke liye koi activity history"
+          " log record nahi hui hai."
+      )
 
   st.markdown("---")
   st.markdown(
