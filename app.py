@@ -709,7 +709,7 @@ if menu_selection == "📊 Dashboard":
         st.session_state.current_dashboard_view = "Scrap_View"
         st.rerun()
 
-    # --- CATEGORY SUMMARY TABLE (RESTORED) ---
+    # --- CATEGORY SUMMARY TABLE ---
     st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
     st.markdown(
         "<div class='card-heading'>📂 Category-Wise Inventory Status</div>",
@@ -767,7 +767,7 @@ if menu_selection == "📊 Dashboard":
       st.info("No categories to display.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- QUICK BREAKDOWN FILTERS (RESTORED) ---
+    # --- QUICK BREAKDOWN FILTERS ---
     st.markdown("<div class='workspace-clean-card'>", unsafe_allow_html=True)
     st.markdown(
         "<div class='card-heading'>📊 Quick Breakdown Filters</div>",
@@ -927,20 +927,22 @@ elif menu_selection == "🔍 Monthly Asset Audit":
   verified_this_month = 0
   pending_audit = 0
 
+  def check_overdue(date_val):
+    d_str = str(date_val).strip()
+    if d_str in ["-", ""]:
+      return True
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+      try:
+        dt = datetime.strptime(d_str, fmt).date()
+        return (today_dt - dt).days > 30
+      except ValueError:
+        pass
+    return True
+
   if not df.empty:
     for _, r in df.iterrows():
       v_date_str = str(r.get("Last Verified Date", "-")).strip()
-      is_valid_recent = False
-      if v_date_str not in ["-", ""]:
-        for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
-          try:
-            parsed = datetime.strptime(v_date_str, fmt).date()
-            if (today_dt - parsed).days <= 30:
-              is_valid_recent = True
-            break
-          except ValueError:
-            pass
-      if is_valid_recent:
+      if not check_overdue(v_date_str):
         verified_this_month += 1
       else:
         pending_audit += 1
@@ -996,8 +998,10 @@ elif menu_selection == "🔍 Monthly Asset Audit":
       t_code = item_row["Asset Code"]
 
       st.success(
-          f"Found: **{item_row.get('Asset Name', '')}** ({t_code}) - Location:"
-          f" **{item_row.get('Current Location', '')}**"
+          f"Found: **{item_row.get('Asset Name', '')}** ({t_code}) - Brand:"
+          f" {item_row.get('Brand', '')} | Location:"
+          f" **{item_row.get('Current Location', '')}** | Assigned:"
+          f" **{item_row.get('Assigned To', '')}**"
       )
 
       with st.form("verify_single_asset_form"):
@@ -1068,6 +1072,23 @@ elif menu_selection == "🔍 Monthly Asset Audit":
             st.rerun()
           else:
             st.error("Failed to update Google Sheet.")
+
+  st.markdown("---")
+
+  # --- PENDING OVERDUE AUDIT TABLE (RESTORED) ---
+  st.subheader("⚠️ Pending Physical Audit (Over 30 Days or Never Verified)")
+
+  if not df.empty:
+    overdue_mask = df["Last Verified Date"].apply(check_overdue)
+    overdue_df = df[overdue_mask]
+    st.write(
+        f"**{len(overdue_df)} Items** require physical verification this month."
+    )
+    render_comprehensive_ledger(
+        overdue_df, file_prefix="Overdue_Audit_Assets", key_id="overdue_audit"
+    )
+  else:
+    st.info("No items in the asset database.")
 
   st.markdown("</div>", unsafe_allow_html=True)
 
