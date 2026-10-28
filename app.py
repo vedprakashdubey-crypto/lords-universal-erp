@@ -478,8 +478,6 @@ def render_comprehensive_ledger(
 
 if "current_dashboard_view" not in st.session_state:
   st.session_state.current_dashboard_view = "Main_Grid"
-if "history_selected_asset" not in st.session_state:
-  st.session_state.history_selected_asset = None
 
 # SIDEBAR CONTROL PANEL
 with st.sidebar:
@@ -685,82 +683,231 @@ if menu_selection == "📊 Dashboard":
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ==================== NEW MODULE: LIFECYCLE & REPAIR HISTORY ====================
+# ==================== MODULE 5: REPAIR & MAINTENANCE ====================
+elif menu_selection == "🛠️ Repair & Maintenance":
+  st.markdown(
+      "<div class='workspace-clean-card'><div class='card-heading'>Hardware"
+      " Repair, Part Replacement & Cost Tracker</div>",
+      unsafe_allow_html=True,
+  )
+  with st.form("repair_form"):
+    all_assets = df["Asset Code"].tolist() if not df.empty else []
+    rc1, rc2 = st.columns(2)
+    maint_asset = rc1.selectbox(
+        "Select Asset Tag / Laptop*:", all_assets if all_assets else ["-"]
+    )
+    maint_status = rc2.selectbox(
+        "Change Asset Status to*:",
+        [
+            "In Repair",
+            "Available (Repaired & Restored)",
+            "Scrap (Unrepairable)",
+        ],
+    )
+
+    rc3, rc4 = st.columns(2)
+    maint_issue = rc3.text_input(
+        "Fault / Part Repaired or Replaced*:",
+        placeholder="e.g. Keyboard Replaced, Motherboard Chip Level Repair, Screen Cracked, RAM Issue",
+    )
+    maint_cost = rc4.text_input(
+        "Repair / Service Cost (₹):",
+        value="0",
+        placeholder="e.g. 1500, 3500",
+    )
+
+    rc5, rc6 = st.columns(2)
+    maint_vendor = rc5.text_input(
+        "Service Vendor / Technician:",
+        placeholder="e.g. Dell Authorized, Local Tech Shop, In-House",
+    )
+    maint_remarks = rc6.text_input(
+        "Additional Notes / Invoice Ref:",
+        value=f"Service recorded on {today_date_str}",
+    )
+
+    if st.form_submit_button("🛠️ LOG REPAIR & UPDATE STATUS") and all_assets:
+      if not maint_issue.strip():
+        st.error(
+            "Kripya 'Fault / Part Repaired or Replaced' field jarur bharein!"
+        )
+      else:
+        row_data = df[df["Asset Code"] == maint_asset].iloc[0].to_dict()
+
+        status_tag = (
+            "In Repair"
+            if "In Repair" in maint_status
+            else ("Available" if "Available" in maint_status else "Scrap")
+        )
+        row_data["Status"] = status_tag
+
+        cost_val = maint_cost.strip().replace("₹", "").replace(",", "")
+        if not cost_val.isdigit():
+          cost_val = "0"
+
+        # Structured log format for accurate parsing
+        formatted_log_details = (
+            f"REPAIRED: {maint_issue.strip()} | COST: ₹{cost_val} | VENDOR:"
+            f" {maint_vendor.strip() if maint_vendor.strip() else 'In-House'} |"
+            f" STATUS: {status_tag} | NOTES: {maint_remarks.strip()}"
+        )
+
+        if status_tag == "Available":
+          row_data["Assigned To"] = "-"
+          row_data["Current Location"] = "MAIN STORE"
+          row_data["Remarks"] = (
+              f"Repaired ({maint_issue.strip()}) on {today_date_str}"
+          )
+          row_data["Damage & Issue Description"] = "-"
+        elif status_tag == "In Repair":
+          row_data["Damage & Issue Description"] = (
+              f"Under Repair: {maint_issue.strip()}"
+          )
+          row_data["Remarks"] = (
+              f"Sent for repair ({maint_issue.strip()}) on {today_date_str}"
+          )
+
+        if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
+          log_activity("MAINTENANCE_CHANGE", maint_asset, formatted_log_details)
+          st.cache_data.clear()
+          st.success(
+              f"Repair record successfully logged for **{maint_asset}**! Cost:"
+              f" ₹{cost_val}"
+          )
+          st.rerun()
+        else:
+          st.error("Failed to update Google Sheet.")
+
+  st.markdown(
+      "<br><div class='card-heading'>Active Items Under Repair Pipeline</div>",
+      unsafe_allow_html=True,
+  )
+  render_comprehensive_ledger(
+      df[df["Status"].str.lower().str.contains("repair")]
+      if not df.empty
+      else df,
+      file_prefix="Repair_Items",
+      key_id="module_repair",
+  )
+  st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== MODULE: LIFECYCLE & REPAIR HISTORY ====================
 elif menu_selection == "📜 Asset Lifecycle & Repair History":
   st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Complete"
-      " Repair Frequency & Asset History Tracker</div>",
+      "<div class='workspace-clean-card'><div class='card-heading'>Item Repair"
+      " Details, Parts Replaced & Cost Ledger</div>",
       unsafe_allow_html=True,
   )
 
-  # Calculate Repair counts per asset from Activity Logs
-  repair_counts = {}
+  # Parse logs to extract clean repair events with costs and parts
+  asset_repair_stats = {}
+  parsed_repairs_by_asset = {}
+
   if not logs_df.empty:
-    repair_logs = logs_df[
-        (logs_df["Action"] == "MAINTENANCE_CHANGE")
-        | (logs_df["Details"].str.contains("In Repair", case=False, na=False))
-        | (logs_df["Details"].str.contains("Needs Repair", case=False, na=False))
-    ]
-    repair_counts = repair_logs["Asset Code"].value_counts().to_dict()
+    for _, log_r in logs_df.iterrows():
+      act = str(log_r.get("Action", ""))
+      det = str(log_r.get("Details", ""))
+      a_code = str(log_r.get("Asset Code", "")).strip()
 
-  # Create a display summary table
-  summary_records = []
-  if not df.empty:
-    for _, item in df.iterrows():
-      code = item.get("Asset Code", "-")
-      r_cnt = repair_counts.get(code, 0)
-      summary_records.append({
-          "Asset Code": code,
-          "Asset Name": item.get("Asset Name", "-"),
-          "Category": item.get("Category", "-"),
-          "Brand & Model": f"{item.get('Brand', '')} {item.get('Model', '')}".strip(),
-          "Serial Number": item.get("Serial Number", "-"),
-          "Current Status": item.get("Status", "-"),
-          "Current Location": item.get("Current Location", "-"),
-          "Assigned To": item.get("Assigned To", "-"),
-          "Repair Count": r_cnt,
-      })
+      if a_code not in asset_repair_stats:
+        asset_repair_stats[a_code] = {"count": 0, "total_cost": 0}
+        parsed_repairs_by_asset[a_code] = []
 
-  summary_df = pd.DataFrame(summary_records)
+      # Detect repair events
+      if (
+          "MAINTENANCE_CHANGE" in act
+          or "repair" in det.lower()
+          or "REPAIRED:" in det
+      ):
+        # Extract part/issue
+        part = "General Maintenance / Repair"
+        cost = 0
+        vendor = "-"
 
-  # Search / Select Asset for detailed History View
-  col_s1, col_s2 = st.columns([2, 1])
+        if "REPAIRED:" in det:
+          try:
+            parts_split = det.split("|")
+            for segment in parts_split:
+              seg = segment.strip()
+              if seg.startswith("REPAIRED:"):
+                part = seg.replace("REPAIRED:", "").strip()
+              elif seg.startswith("COST:"):
+                cost_str = "".join(
+                    c for c in seg.replace("COST:", "") if c.isdigit()
+                )
+                if cost_str:
+                  cost = int(cost_str)
+              elif seg.startswith("VENDOR:"):
+                vendor = seg.replace("VENDOR:", "").strip()
+          except Exception:
+            part = det
+        else:
+          part = det
+
+        asset_repair_stats[a_code]["count"] += 1
+        asset_repair_stats[a_code]["total_cost"] += cost
+        parsed_repairs_by_asset[a_code].append({
+            "Date": str(log_r.get("Timestamp", "-")).split(" ")[0],
+            "Repaired Item / Part Replaced": part,
+            "Service Vendor": vendor,
+            "Repair Cost (₹)": f"₹{cost:,}" if cost > 0 else "₹0",
+            "Cost_Num": cost,
+            "Logged By": log_r.get("User", "-"),
+            "Raw Details": det,
+        })
+
+  # Dropdown to select Asset
+  asset_options = sorted(df["Asset Code"].tolist()) if not df.empty else []
+  col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
   with col_s1:
-    asset_options = sorted(df["Asset Code"].tolist()) if not df.empty else []
     selected_asset = st.selectbox(
-        "🔍 Select or Search Asset Tag to View Complete Timeline & History:",
+        "🔍 Select or Search Asset Tag (e.g. LAB101-LPT-02):",
         ["-- Select Asset --"] + asset_options,
     )
+
   with col_s2:
-    st.write("")
-    st.write("")
     if selected_asset != "-- Select Asset --":
-      curr_repair_c = repair_counts.get(selected_asset, 0)
-      pill_color = (
+      stat = asset_repair_stats.get(
+          selected_asset, {"count": 0, "total_cost": 0}
+      )
+      pill_c = (
           "#34D399"
-          if curr_repair_c == 0
-          else ("#FBBF24" if curr_repair_c < 3 else "#F87171")
+          if stat["count"] == 0
+          else ("#FBBF24" if stat["count"] < 3 else "#F87171")
       )
       st.markdown(
-          f"<div style='background:#0F172A; border:1px solid #334155; padding:10px 16px; border-radius:8px; text-align:center;'>"
-          f"<span style='font-size:12px; color:#94A3B8;'>TOTAL REPAIRS RECORDED:</span><br>"
-          f"<span style='font-size:24px; font-weight:800; color:{pill_color};'>{curr_repair_c} TIMES</span>"
+          f"<div style='background:#0F172A; border:1px solid #334155; padding:10px 14px; border-radius:8px; text-align:center;'>"
+          f"<span style='font-size:11px; color:#94A3B8; font-weight:700;'>TOTAL REPAIRS RECORDED</span><br>"
+          f"<span style='font-size:22px; font-weight:800; color:{pill_c};'>{stat['count']} TIMES</span>"
           f"</div>",
           unsafe_allow_html=True,
       )
 
-  # DETAILED TIMELINE & SPECS DASHBOARD FOR SELECTED ASSET
+  with col_s3:
+    if selected_asset != "-- Select Asset --":
+      stat = asset_repair_stats.get(
+          selected_asset, {"count": 0, "total_cost": 0}
+      )
+      st.markdown(
+          f"<div style='background:#0F172A; border:1px solid #334155; padding:10px 14px; border-radius:8px; text-align:center;'>"
+          f"<span style='font-size:11px; color:#94A3B8; font-weight:700;'>TOTAL REPAIR COST</span><br>"
+          f"<span style='font-size:22px; font-weight:800; color:#38BDF8;'>₹{stat['total_cost']:,}</span>"
+          f"</div>",
+          unsafe_allow_html=True,
+      )
+
+  # DETAILED DOSSIER
   if selected_asset and selected_asset != "-- Select Asset --":
     asset_info = df[df["Asset Code"] == selected_asset].iloc[0]
 
     st.markdown("---")
     st.markdown(
-        f"<h3 style='color:#38BDF8; font-weight:800;'>🖥️ Lifecycle & History"
+        f"<h3 style='color:#38BDF8; font-weight:800; margin-bottom:14px;'>🖥️"
         f" Dossier: {selected_asset} - {asset_info.get('Asset Name', '')}</h3>",
         unsafe_allow_html=True,
     )
 
-    # Asset Specs Cards
+    # 4-Column Specs
     c1, c2, c3, c4 = st.columns(4)
     with c1:
       st.markdown(
@@ -777,9 +924,19 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
       st.markdown(f"**Operating System:** {asset_info.get('Operating System', '-')}")
       st.markdown(f"**IP Address:** `{asset_info.get('IP Address', '-')}`")
     with c3:
+      curr_st = asset_info.get("Status", "-")
+      p_class = (
+          "pill-available"
+          if curr_st.lower() in ["available", "working"]
+          else (
+              "pill-issued"
+              if curr_st.lower() in ["issued", "in use"]
+              else "pill-repair"
+          )
+      )
       st.markdown(
           f"**Current Status:** <span class='status-pill"
-          f" pill-available'>{asset_info.get('Status', '-')}</span>",
+          f" {p_class}'>{curr_st}</span>",
           unsafe_allow_html=True,
       )
       st.markdown(
@@ -794,13 +951,56 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
       )
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # REPAIR HISTORY TABLE
     st.markdown(
-        "<div class='card-heading'>🕒 Chronological Activity & Repair"
-        " Timeline</div>",
+        "<div class='card-heading'>🛠️ Specific Repair History (Part Replaced,"
+        " Dates & Cost)</div>",
         unsafe_allow_html=True,
     )
 
-    # Filter logs specifically for this Asset Code
+    specific_repairs = parsed_repairs_by_asset.get(selected_asset, [])
+    if specific_repairs:
+      rep_df = pd.DataFrame(specific_repairs)
+      disp_table = rep_df[[
+          "Date",
+          "Repaired Item / Part Replaced",
+          "Service Vendor",
+          "Repair Cost (₹)",
+          "Logged By",
+      ]]
+
+      r_html = (
+          "<div style='overflow-x:auto; border:1px solid #334155;"
+          " border-radius:10px;'><table class='erp-data-table'><thead><tr><th"
+          " style='color:#38BDF8;'>Repair Date</th><th>What Got Repaired /"
+          " Part Replaced</th><th>Vendor / Technician</th><th"
+          " style='color:#FBBF24;'>Cost Incurred</th><th>Logged"
+          " By</th></tr></thead><tbody>"
+      )
+      for _, r_item in disp_table.iterrows():
+        r_html += f"""<tr>
+                    <td><b>📅 {r_item['Date']}</b></td>
+                    <td style='color:#FCA5A5; font-weight:700;'>⚠️ {r_item['Repaired Item / Part Replaced']}</td>
+                    <td>{r_item['Service Vendor']}</td>
+                    <td style='font-weight:800; color:#38BDF8;'>{r_item['Repair Cost (₹)']}</td>
+                    <td style='color:#94A3B8;'>{r_item['Logged By']}</td>
+                </tr>"""
+      r_html += "</tbody></table></div>"
+      st.markdown(r_html, unsafe_allow_html=True)
+    else:
+      st.info(
+          f"No repair logs found for {selected_asset}. Jab bhi aap '🛠️ Repair"
+          " & Maintenance' panel se repair enter karenge, details yaha dikhegi."
+      )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    # COMPLETE CHRONOLOGICAL AUDIT & ISSUE TIMELINE
+    st.markdown(
+        "<div class='card-heading'>🕒 Complete Lifecycle Activity Timeline</div>",
+        unsafe_allow_html=True,
+    )
+
     asset_history_logs = pd.DataFrame()
     if not logs_df.empty:
       asset_history_logs = logs_df[
@@ -840,58 +1040,69 @@ elif menu_selection == "📜 Asset Lifecycle & Repair History":
                 """,
             unsafe_allow_html=True,
         )
-    else:
-      st.info(
-          f"No previous activity logs recorded yet for asset {selected_asset}."
-      )
 
   st.markdown("---")
   st.markdown(
-      "<div class='card-heading'>📊 All Assets Repair Frequency Index</div>",
+      "<div class='card-heading'>📊 All Assets Repair Frequency & Cost"
+      " Overview</div>",
       unsafe_allow_html=True,
   )
 
-  # Render Complete Asset List with Repair Counts
+  summary_records = []
+  if not df.empty:
+    for _, item in df.iterrows():
+      code = item.get("Asset Code", "-")
+      st_dat = asset_repair_stats.get(code, {"count": 0, "total_cost": 0})
+      summary_records.append({
+          "Asset Code": code,
+          "Asset Name": item.get("Asset Name", "-"),
+          "Category": item.get("Category", "-"),
+          "Serial Number": item.get("Serial Number", "-"),
+          "Repair Count": st_dat["count"],
+          "Total Repair Cost": f"₹{st_dat['total_cost']:,}",
+          "Current Status": item.get("Status", "-"),
+          "Current Location": item.get("Current Location", "-"),
+          "Assigned To": item.get("Assigned To", "-"),
+      })
+
+  summary_df = pd.DataFrame(summary_records)
   if not summary_df.empty:
     summary_df = summary_df.sort_values(by="Repair Count", ascending=False)
     render_download_buttons(
-        summary_df, file_prefix="Assets_Repair_Frequency_Report", key_id="freq"
+        summary_df, file_prefix="Assets_Repair_Cost_Ledger", key_id="freq_cost"
     )
 
     t_html = (
         "<div style='overflow-x:auto; border:1px solid #334155;"
         " border-radius:10px;'><table class='erp-data-table'><thead><tr><th>Asset"
-        " Code</th><th>Category</th><th>Asset Name</th><th>Brand &"
-        " Model</th><th>Serial No</th><th>Total Repairs</th><th>Current"
-        " Status</th><th>Current Location</th><th>Assigned"
+        " Code</th><th>Category</th><th>Asset Name</th><th>Serial"
+        " No</th><th>Total Repairs</th><th style='color:#38BDF8;'>Total"
+        " Cost</th><th>Current Status</th><th>Location</th><th>Assigned"
         " To</th></tr></thead><tbody>"
     )
     for _, s_row in summary_df.iterrows():
       r_badge = (
-          f"<span style='color:#34D399; font-weight:700;'>0"
-          f" Repairs</span>"
+          f"<span style='color:#34D399; font-weight:700;'>0 Repairs</span>"
           if s_row["Repair Count"] == 0
           else (
               f"<span class='status-pill pill-issued'>{s_row['Repair Count']} Times</span>"
               if s_row["Repair Count"] < 3
-              else f"<span class='status-pill pill-scrap'>⚠️ {s_row['Repair Count']} Times (High)</span>"
+              else f"<span class='status-pill pill-scrap'>⚠️ {s_row['Repair Count']} Times</span>"
           )
       )
       t_html += f"""<tr>
                 <td><b>{s_row['Asset Code']}</b></td>
                 <td>{s_row['Category']}</td>
                 <td>{s_row['Asset Name']}</td>
-                <td>{s_row['Brand & Model']}</td>
                 <td><code>{s_row['Serial Number']}</code></td>
                 <td>{r_badge}</td>
+                <td style='font-weight:700; color:#38BDF8;'>{s_row['Total Repair Cost']}</td>
                 <td>{s_row['Current Status']}</td>
                 <td>{s_row['Current Location']}</td>
                 <td>{s_row['Assigned To']}</td>
             </tr>"""
     t_html += "</tbody></table></div>"
     st.markdown(t_html, unsafe_allow_html=True)
-  else:
-    st.info("No asset records found in database.")
 
   st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1161,393 +1372,4 @@ elif menu_selection == "✏️ Edit / Update Asset":
             prefix = generate_product_prefix(edit_cat)
             full_prefix = f"LUC-{prefix}-"
             matching_codes = (
-                df[df["Asset Code"].str.startswith(full_prefix)][
-                    "Asset Code"
-                ].tolist()
-                if not df.empty
-                else []
-            )
-            max_num = 0
-            for code in matching_codes:
-              try:
-                num_part = int(code.split("-")[-1])
-                if num_part > max_num:
-                  max_num = num_part
-              except ValueError:
-                continue
-            next_num = max_num + 1
-            final_asset_code = f"{full_prefix}{str(next_num).zfill(3)}"
-
-          updated_dict = {
-              "Asset Code": final_asset_code,
-              "Asset Name": edit_name.strip(),
-              "Category": edit_cat.strip(),
-              "Brand": edit_brand.strip(),
-              "Model": edit_model.strip(),
-              "Serial Number": edit_serial.strip(),
-              "Processor": edit_proc.strip(),
-              "RAM": edit_ram.strip(),
-              "Storage": edit_storage.strip(),
-              "Operating System": edit_os.strip(),
-              "MAC Address": edit_mac.strip(),
-              "IP Address": edit_ip.strip(),
-              "Purchase Date": edit_pdate.strip(),
-              "Invoice Number": edit_inv.strip(),
-              "Vendor": edit_vendor.strip(),
-              "Purchase Cost": edit_cost.strip(),
-              "Warranty Start": edit_wstart.strip(),
-              "Warranty End": edit_wend.strip(),
-              "Current Location": edit_loc.strip(),
-              "Assigned To": edit_teach.strip(),
-              "Department": edit_dept.strip(),
-              "Status": edit_status,
-              "Remarks": edit_rem.strip(),
-              "Last Verified Date": row_data.get(
-                  "Last Verified Date", today_date_str
-              ),
-              "Verified By": row_data.get(
-                  "Verified By", st.session_state.user_name
-              ),
-              "Audit Status": row_data.get("Audit Status", "Verified"),
-              "Damage & Issue Description": edit_damage.strip(),
-          }
-
-          if db.update_row_in_sheet(
-              "Assets", "Asset Code", selected_edit_code, updated_dict
-          ):
-            log_activity(
-                "EDIT_ASSET",
-                final_asset_code,
-                f"Updated Item Details & Code (Old: {selected_edit_code} ➡️"
-                f" New: {final_asset_code})",
-            )
-            st.cache_data.clear()
-            st.success(
-                f"Asset Record **{final_asset_code}** updated successfully!"
-            )
-            st.rerun()
-          else:
-            st.error("Failed to update record in Google Sheets.")
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 4: ALLOCATION ====================
-elif menu_selection == "📑 Issue / Allocate Item":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Issue Item"
-      " Form</div>",
-      unsafe_allow_html=True,
-  )
-  with st.form("issue_form"):
-    available_assets = (
-        df[df["Status"].str.lower().isin(["available", "working"])][
-            "Asset Code"
-        ].tolist()
-        if not df.empty
-        else []
-    )
-    c1, c2, c3 = st.columns(3)
-    target_asset = c1.selectbox(
-        "Select Asset Tag:",
-        available_assets if available_assets else ["No Stock Available"],
-    )
-    assign_user = c2.text_input("Assigned To (Staff Name)*")
-    target_loc = c3.text_input("Current Location (Room/Lab)*")
-    c4, c5 = st.columns(2)
-    target_dept = c4.text_input("Department", value="IT")
-    issue_remarks = c5.text_input(
-        "Remarks / Notes",
-        value=f"Issued on {today_date_str} for official college use",
-    )
-
-    if st.form_submit_button("⚡ ASSIGN / ISSUE NOW") and available_assets:
-      if assign_user.strip() and target_loc.strip():
-        row_data = df[df["Asset Code"] == target_asset].iloc[0].to_dict()
-        row_data["Assigned To"] = assign_user.strip()
-        row_data["Current Location"] = target_loc.strip()
-        row_data["Department"] = target_dept.strip()
-        row_data["Status"] = "Issued"
-        row_data["Remarks"] = issue_remarks.strip()
-
-        if db.update_row_in_sheet(
-            "Assets", "Asset Code", target_asset, row_data
-        ):
-          log_activity(
-              "ISSUE_ASSET",
-              target_asset,
-              f"Assigned To: {assign_user.strip()} [Issue Date:"
-              f" {today_date_str}], Location: {target_loc.strip()}",
-          )
-          st.cache_data.clear()
-          st.success(f"Item {target_asset} allocated successfully!")
-          st.rerun()
-
-  render_comprehensive_ledger(
-      df[df["Status"].str.lower().isin(["issued", "in use"])]
-      if not df.empty
-      else df,
-      file_prefix="Issued_Items",
-      key_id="module_issued",
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 5: REPAIR ====================
-elif menu_selection == "🛠️ Repair & Maintenance":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Maintenance"
-      " Loop Control</div>",
-      unsafe_allow_html=True,
-  )
-  with st.form("repair_form"):
-    all_assets = df["Asset Code"].tolist() if not df.empty else []
-    rc1, rc2, rc3 = st.columns(3)
-    maint_asset = rc1.selectbox(
-        "Select Asset Tag:", all_assets if all_assets else ["-"]
-    )
-    maint_status = rc2.selectbox("Set Status to:", ["In Repair", "Available"])
-    maint_remarks = rc3.text_input(
-        "Fault / Repair Logs:",
-        value=f"Sent for repair on {today_date_str}",
-    )
-
-    if st.form_submit_button("🛠️ UPDATE MAINTENANCE STATUS") and all_assets:
-      row_data = df[df["Asset Code"] == maint_asset].iloc[0].to_dict()
-      row_data["Status"] = maint_status
-      row_data["Remarks"] = maint_remarks.strip()
-      if maint_status == "Available":
-        row_data["Assigned To"] = "-"
-        row_data["Current Location"] = "MAIN STORE"
-        row_data["Remarks"] = f"Returned from repair on {today_date_str}"
-        row_data["Damage & Issue Description"] = "-"
-
-      if db.update_row_in_sheet("Assets", "Asset Code", maint_asset, row_data):
-        log_activity(
-            "MAINTENANCE_CHANGE",
-            maint_asset,
-            f"Maintenance Status: {maint_status} [Date: {today_date_str}],"
-            f" Note: {maint_remarks.strip()}",
-        )
-        st.cache_data.clear()
-        st.success(f"Maintenance log for **{maint_asset}** updated.")
-        st.rerun()
-
-  render_comprehensive_ledger(
-      df[df["Status"].str.lower().str.contains("repair")]
-      if not df.empty
-      else df,
-      file_prefix="Repair_Items",
-      key_id="module_repair",
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE 6: WARRANTY ====================
-elif menu_selection == "⏱️ Warranty Records":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Warranty &"
-      " AMC Status Ledger</div>",
-      unsafe_allow_html=True,
-  )
-  render_comprehensive_ledger(
-      df, file_prefix="Warranty_Records", key_id="warranty"
-  )
-  st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE: AUDIT LOGS ====================
-elif menu_selection == "📜 Activity Logs (Audit)":
-  if st.session_state.user_role == "Admin":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Activity & Movement Audit Ledger (IST)</div>",
-        unsafe_allow_html=True,
-    )
-    if not logs_df.empty:
-      render_download_buttons(
-          logs_df, file_prefix="Audit_Activity_Logs", key_id="audit_logs"
-      )
-      st.dataframe(
-          logs_df.sort_values(by="Timestamp", ascending=False),
-          use_container_width=True,
-      )
-    else:
-      st.info("No user activity logged yet.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE: RESET PASSWORDS ====================
-elif menu_selection == "🔑 Reset User Passwords":
-  if st.session_state.user_role == "Admin":
-    st.markdown(
-        "<div class='workspace-clean-card'><div class='card-heading'>User"
-        " Password Management</div>",
-        unsafe_allow_html=True,
-    )
-    user_list = list(USERS.keys())
-    with st.form("reset_pwd_form"):
-      selected_user = st.selectbox(
-          "Select User Account to Reset:", user_list
-      )
-      new_pwd = st.text_input("New Password", type="password")
-      confirm_pwd = st.text_input("Confirm New Password", type="password")
-      if st.form_submit_button("🔄 UPDATE PASSWORD NOW"):
-        if new_pwd and new_pwd == confirm_pwd:
-          USERS[selected_user]["pass"] = new_pwd
-          save_user_credentials(selected_user, new_pwd)
-          log_activity(
-              "PASSWORD_RESET",
-              "-",
-              f"Admin reset password for user: {selected_user}",
-          )
-          st.success(
-              f"Password for **{selected_user}** updated successfully!"
-          )
-        elif new_pwd != confirm_pwd:
-          st.error("Passwords do not match!")
-        else:
-          st.error("Please enter a valid password.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== MODULE: MONTHLY ASSET AUDIT ====================
-elif menu_selection == "🔍 Monthly Asset Audit":
-  st.markdown(
-      "<div class='workspace-clean-card'><div class='card-heading'>Monthly"
-      " Physical Verification & Asset Audit</div>",
-      unsafe_allow_html=True,
-  )
-  today_dt = get_ist_now().date()
-  verified_this_month = 0
-  pending_audit = 0
-
-  if not df.empty:
-    for _, r in df.iterrows():
-      v_date_str = str(r.get("Last Verified Date", "-")).strip()
-      is_valid_recent = False
-      if v_date_str not in ["-", ""]:
-        for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
-          try:
-            parsed = datetime.strptime(v_date_str, fmt).date()
-            if (today_dt - parsed).days <= 30:
-              is_valid_recent = True
-            break
-          except ValueError:
-            pass
-      if is_valid_recent:
-        verified_this_month += 1
-      else:
-        pending_audit += 1
-
-  col_a1, col_a2, col_a3 = st.columns(3)
-  with col_a1:
-    st.markdown(
-        f"<div class='metric-card-wrapper'><span class='card-label'>Total"
-        f" Assets</span><div class='card-val'>{len(df)}</div></div>",
-        unsafe_allow_html=True,
-    )
-  with col_a2:
-    st.markdown(
-        "<div class='metric-card-wrapper'><span class='card-label'"
-        " style='color:#34D399;'>Verified (Past 30 Days)</span><div"
-        f" class='card-val' style='color:#34D399;'>{verified_this_month}</div></div>",
-        unsafe_allow_html=True,
-    )
-  with col_a3:
-    st.markdown(
-        "<div class='metric-card-wrapper'><span class='card-label'"
-        " style='color:#F87171;'>Pending / Overdue Audit</span><div"
-        f" class='card-val' style='color:#F87171;'>{pending_audit}</div></div>",
-        unsafe_allow_html=True,
-    )
-
-  st.markdown("---")
-  audit_search = st.text_input(
-      "Scan Barcode / Enter Asset Code, Serial Number or MAC:",
-      placeholder="e.g. LUC-LPT-001 or S/N...",
-  )
-  if audit_search.strip():
-    search_q = audit_search.strip().lower()
-    matched = df[
-        (df["Asset Code"].str.lower() == search_q)
-        | (df["Serial Number"].str.lower() == search_q)
-        | (df["MAC Address"].str.lower() == search_q)
-    ]
-    if matched.empty:
-      matched = df[
-          df.astype(str)
-          .apply(lambda x: x.str.contains(search_q, case=False))
-          .any(axis=1)
-      ]
-
-    if not matched.empty:
-      item_row = matched.iloc[0]
-      t_code = item_row["Asset Code"]
-      st.success(
-          f"Found: **{item_row.get('Asset Name', '')}** ({t_code}) - Location:"
-          f" **{item_row.get('Current Location', '')}**"
-      )
-
-      with st.form("verify_single_asset_form"):
-        v_c1, v_c2, v_c3 = st.columns(3)
-        v_user = v_c1.text_input(
-            "Auditor / Verified By", value=st.session_state.user_name
-        )
-        v_status = v_c2.selectbox(
-            "Physical Asset Condition",
-            [
-                "Verified & Working",
-                "Needs Repair",
-                "Scrap / Damaged",
-                "Missing / Not Found",
-            ],
-        )
-        v_loc = v_c3.text_input(
-            "Confirm Current Location",
-            value=item_row.get("Current Location", "MAIN STORE"),
-        )
-        v_c4, v_c5 = st.columns(2)
-        v_assigned = v_c4.text_input(
-            "Confirm Assigned To", value=item_row.get("Assigned To", "-")
-        )
-        v_notes = v_c5.text_input(
-            "Audit Notes / General Remarks",
-            value=f"Monthly audit verified on {today_date_str}",
-        )
-        v_damage = st.text_input(
-            "⚠️ Damage / Fault / Issue Description:",
-            value=item_row.get("Damage & Issue Description", "-"),
-        )
-
-        if st.form_submit_button("✅ MARK AS VERIFIED TODAY"):
-          updated_data = item_row.to_dict()
-          updated_data["Last Verified Date"] = today_date_str
-          updated_data["Verified By"] = v_user.strip()
-          updated_data["Audit Status"] = (
-              "Verified"
-              if "Verified" in v_status
-              else f"Discrepancy ({v_status})"
-          )
-          updated_data["Current Location"] = v_loc.strip()
-          updated_data["Assigned To"] = v_assigned.strip()
-          updated_data["Remarks"] = v_notes.strip()
-
-          damage_val = v_damage.strip()
-          if v_status in ["Needs Repair", "Scrap / Damaged"]:
-            if not damage_val or damage_val == "-":
-              damage_val = f"Reported {v_status} during audit"
-            updated_data["Damage & Issue Description"] = damage_val
-            updated_data["Status"] = (
-                "In Repair" if v_status == "Needs Repair" else "Scrap"
-            )
-          elif v_status == "Verified & Working":
-            updated_data["Damage & Issue Description"] = (
-                damage_val if damage_val and damage_val != "-" else "-"
-            )
-
-          if db.update_row_in_sheet("Assets", "Asset Code", t_code, updated_data):
-            log_activity(
-                "MONTHLY_AUDIT",
-                t_code,
-                f"Audited by {v_user.strip()}, Status: {v_status}",
-            )
-            st.cache_data.clear()
-            st.success(f"Asset **{t_code}** verified successfully!")
-            st.rerun()
-          else:
-            st.error("Failed to update Google Sheet.")
-  st.markdown("</div>", unsafe_allow_html=True)
+                df[df["Asset Code"].str
